@@ -189,7 +189,7 @@ button, input, textarea, select { font: inherit; }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -292,6 +292,18 @@ button, input, textarea, select { font: inherit; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cms-accent) 18%, transparent);
 }
 textarea.form-control { min-height: 132px; resize: vertical; }
+.code-area {
+  min-height: 460px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+  color: var(--cms-text);
+  font-weight: 700;
+}
 .cms-toast {
   min-height: 22px;
   margin: 10px 0 0;

@@ -1,0 +1,14 @@
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1m*** std::terminate() called with no exception[0m
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mstack: 7ff982e21239 7ff60eeb63a5 7ff982e304ff 7ff982e23a90 7ff982e2f977 7ff982e22c77 7ff982e30310 7ff9a3364b3e 7ff9a3242102 7ff982e2fe75 7ff982e218f1 7ff982e21d16 7ff982e22d60 7ff982e30310 7ff9a3364abe 7ff9a3245e96 7ff9a328d010 7ff9a0861879 7ff982e25276 7ff6105b92af 7ff60eeb5f63 7ff6105be362 7ff6105c5266 7ff6105be8bb 7ff6105c5266 7ff6105bbe0b 7ff60eea1e77 7ff6124b043e 7ff9a103ccb6[0m
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mThe Workers runtime failed to start. There was likely a problem with the workerd binary or your configuration.[0m
+
+  Runtime stderr:
+  *** std::terminate() called with no exception
+  stack: 7ff982e21239 7ff60eeb63a5 7ff982e304ff 7ff982e23a90 7ff982e2f977 7ff982e22c77 7ff982e30310 7ff9a3364b3e 7ff9a3242102 7ff982e2fe75 7ff982e218f1 7ff982e21d16 7ff982e22d60 7ff982e30310 7ff9a3364abe 7ff9a3245e96 7ff9a328d010 7ff9a0861879 7ff982e25276 7ff6105b92af 7ff60eeb5f63 7ff6105be362 7ff6105c5266 7ff6105be8bb 7ff6105c5266 7ff6105bbe0b 7ff60eea1e77 7ff6124b043e 7ff9a103ccb6
+
+
+🪵  Logs were written to "C:\Users\ACER\AppData\Roaming\xdg.config\.wrangler\logs\wrangler-2026-08-17_14-18-59_053.log"

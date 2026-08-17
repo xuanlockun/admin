@@ -2,7 +2,8 @@ import { all, first, run, slugify } from "./db.js";
 import { requiredString } from "./http.js";
 import { commitFiles, getPagesBuildStatus, getPagesUrl } from "./github.js";
 import { createDeployment, findPostByDeployCommit, listDeploymentsPage, listPendingDeployments, loadSite, normalizeDeploymentStatus, updateDeploymentByCommit } from "./site.js";
-import { renderLandingHtml, renderPostHtml, renderStyleCss } from "./render/client.js";
+import { listPublishedPages } from "./pages.js";
+import { renderLandingHtml, renderPageHtml, renderPostHtml, renderStyleCss } from "./render/client.js";
 
 export async function listPosts(env) {
   const posts = await all(env, "SELECT id, title, slug, excerpt, status, updated_at, published_at, deploy_commit_sha, deploy_status, deploy_updated_at FROM posts ORDER BY updated_at DESC");
@@ -73,12 +74,14 @@ export async function publishPost(env, id) {
   const post = await getPost(env, id);
   await run(env, "UPDATE posts SET status = 'published', updated_at = ?, published_at = COALESCE(published_at, ?) WHERE id = ?", now, now, id);
 
-  const [site, posts] = await Promise.all([loadSite(env), listPublishedPosts(env)]);
+  const [site, posts, pages] = await Promise.all([loadSite(env), listPublishedPosts(env), listPublishedPages(env)]);
+  const siteWithPages = { ...site, pages };
   const commit = await commitFiles(env, [
-    { path: `posts/${post.slug}/index.html`, content: renderPostHtml(env, { ...post, status: "published", published_at: post.published_at || now }, site) },
-    { path: "index.html", content: renderLandingHtml(env, posts, site) },
+    { path: `posts/${post.slug}/index.html`, content: renderPostHtml(env, { ...post, status: "published", published_at: post.published_at || now }, siteWithPages) },
+    { path: "index.html", content: renderLandingHtml(env, posts, pages, siteWithPages) },
     { path: "style.css", content: renderStyleCss(site) },
-    { path: "posts.json", content: JSON.stringify(posts, null, 2) + "\n" }
+    { path: "posts.json", content: JSON.stringify(posts, null, 2) + "\n" },
+    ...pages.map((page) => ({ path: `pages/${page.slug}/index.html`, content: renderPageHtml(env, page, siteWithPages) }))
   ], `Publish ${post.slug}`);
 
   const pagesUrl = await getPagesUrl(env);
@@ -100,11 +103,13 @@ export async function publishPost(env, id) {
 }
 
 export async function publishSite(env) {
-  const [site, posts] = await Promise.all([loadSite(env), listPublishedPosts(env)]);
+  const [site, posts, pages] = await Promise.all([loadSite(env), listPublishedPosts(env), listPublishedPages(env)]);
+  const siteWithPages = { ...site, pages };
   const commit = await commitFiles(env, [
-    { path: "index.html", content: renderLandingHtml(env, posts, site) },
+    { path: "index.html", content: renderLandingHtml(env, posts, pages, siteWithPages) },
     { path: "style.css", content: renderStyleCss(site) },
-    { path: "posts.json", content: JSON.stringify(posts, null, 2) + "\n" }
+    { path: "posts.json", content: JSON.stringify(posts, null, 2) + "\n" },
+    ...pages.map((page) => ({ path: `pages/${page.slug}/index.html`, content: renderPageHtml(env, page, siteWithPages) }))
   ], "Publish site");
   const pagesUrl = await getPagesUrl(env);
   await createDeployment(env, { type: "site", commit_sha: commit.sha, commit_url: commit.html_url, live_url: pagesUrl, status: "pending" });

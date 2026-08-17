@@ -26,6 +26,7 @@ export function renderAdminShell(env) {
       <nav class="nav cms-nav" id="nav">
         <button data-view="dashboard" class="active" type="button"><span class="nav-main">Dashboard</span><span>Overview</span></button>
         <button data-view="posts" type="button"><span class="nav-main">Posts</span><span>Content</span></button>
+        <button data-view="pages" type="button"><span class="nav-main">Pages</span><span>Static</span></button>
         <button data-view="landing" type="button"><span class="nav-main">Landing</span><span>Home</span></button>
         <button data-view="theme" type="button"><span class="nav-main">Theme</span><span>Design</span></button>
         <button data-view="navigation" type="button"><span class="nav-main">Navigation</span><span>Header</span></button>
@@ -67,6 +68,10 @@ export function renderAdminShell(env) {
               <strong id="dashDrafts">-</strong>
             </div>
             <div class="cms-card stat-card">
+              <span>Pages</span>
+              <strong id="dashPages">-</strong>
+            </div>
+            <div class="cms-card stat-card">
               <span>Latest deploy</span>
               <strong id="dashDeploy">Loading...</strong>
             </div>
@@ -94,6 +99,7 @@ export function renderAdminShell(env) {
               </div>
               <div class="quick-actions">
                 <button class="btn btn-primary" id="dashNewPost" type="button">New post</button>
+                <button class="btn btn-outline-secondary" type="button" data-jump="pages">Edit pages</button>
                 <button class="btn btn-outline-secondary" type="button" data-jump="theme">Edit theme</button>
                 <button class="btn btn-outline-secondary" type="button" data-jump="navigation">Edit navigation</button>
               </div>
@@ -124,6 +130,54 @@ export function renderAdminShell(env) {
               </table>
             </div>
           </div>
+        </section>
+
+        <section class="view" id="pagesView">
+          <div class="cms-card">
+            <div class="card-head">
+              <div><h2>Pages</h2></div>
+              <button class="btn btn-primary" id="newPage" type="button">New page</button>
+            </div>
+            <div class="table-responsive">
+              <table class="table cms-table">
+                <thead><tr><th>Title</th><th>Slug</th><th>Status</th><th>Nav</th><th>Updated</th></tr></thead>
+                <tbody id="pagesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="pageEditorView">
+          <form id="pageForm" class="editor-layout">
+            <div class="cms-card editor-main">
+              <div class="card-head">
+                <div><h2 id="pageEditorHeading">New page</h2></div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-jump="pages">Back to pages</button>
+              </div>
+              <input type="hidden" id="page_id">
+              <label class="form-label">Title <input class="form-control" id="page_title" required></label>
+              <label class="form-label">Body HTML <textarea class="form-control code-area" id="page_body_html"></textarea></label>
+            </div>
+            <aside class="editor-side">
+              <div class="cms-card publish-card">
+                <h2>Publish</h2>
+                <div class="btn-list">
+                  <button class="btn btn-primary" type="submit">Save</button>
+                  <button class="btn btn-success" type="button" id="publishPage">Publish</button>
+                  <button class="btn btn-danger" type="button" id="deletePage">Delete</button>
+                </div>
+                <p class="cms-toast" id="pageMessage"></p>
+              </div>
+              <div class="cms-card">
+                <h2>Settings</h2>
+                <label class="form-label">Slug <input class="form-control" id="page_slug" placeholder="about"></label>
+                <label class="form-label">Sort order <input class="form-control" id="page_sort_order" type="number" value="0"></label>
+                <label class="check-row"><input id="page_show_in_nav" type="checkbox" checked> Show in navigation</label>
+                <label class="form-label">SEO title <input class="form-control" id="page_seo_title"></label>
+                <label class="form-label">SEO description <textarea class="form-control" id="page_seo_description"></textarea></label>
+              </div>
+            </aside>
+          </form>
         </section>
 
         <section class="view" id="postEditorView">

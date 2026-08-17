@@ -1,6 +1,7 @@
 export const ADMIN_APP_JS = `
 const state = {
   posts: [],
+  pages: [],
   settings: {},
   navigation: [],
   footer: [],
@@ -31,6 +32,8 @@ function showView(view) {
   const titles = {
     dashboard: ["Dashboard", "Overview"],
     posts: ["Posts", "Content"],
+    pages: ["Pages", "Static"],
+    pageEditor: ["Page editor", "Edit"],
     postEditor: ["Post editor", "Edit"],
     landing: ["Landing page", "Home"],
     theme: ["Theme", "Design"],
@@ -46,7 +49,7 @@ function showView(view) {
 }
 
 async function refreshAll() {
-  await Promise.all([loadPosts(), loadSettings(), loadNavigation(), loadFooter(), loadDeployments()]);
+  await Promise.all([loadPosts(), loadPages(), loadSettings(), loadNavigation(), loadFooter(), loadDeployments()]);
   renderDashboard();
 }
 
@@ -167,6 +170,73 @@ function renderPostDeploy(post) {
   deployStep("deployPages", post.deploy_status ? statusPill(post.deploy_status) : "Idle");
   deployStep("deployLive", post.deploy_live_url ? link(post.deploy_live_url, post.deploy_live_url) : "Idle");
   if (post.deploy_commit_sha && !["success", "failed"].includes(post.deploy_status)) pollPages(post.deploy_commit_sha, post.deploy_live_url);
+}
+
+async function loadPages() {
+  state.pages = (await api("/api/pages")).pages;
+  renderPagesTable();
+}
+
+function renderPagesTable() {
+  $("pagesTable").innerHTML = state.pages.length ? state.pages.map((page) => '<tr class="row-click" data-id="' + page.id + '"><td><strong>' + esc(page.title) + '</strong></td><td><code>' + esc(page.slug) + '</code></td><td><span class="status">' + esc(page.status) + '</span></td><td>' + (page.show_in_nav ? "Yes" : "No") + '</td><td>' + fmt(page.updated_at) + '</td></tr>').join("") : '<tr><td colspan="5" class="text-secondary">No pages yet.</td></tr>';
+  document.querySelectorAll("#pagesTable tr[data-id]").forEach((row) => row.onclick = () => openPage(row.dataset.id));
+}
+
+async function openPage(id) {
+  const { page } = await api("/api/pages/" + id);
+  $("page_id").value = page.id;
+  $("page_title").value = page.title || "";
+  $("page_slug").value = page.slug || "";
+  $("page_body_html").value = page.body_html || "";
+  $("page_sort_order").value = page.sort_order || 0;
+  $("page_show_in_nav").checked = Boolean(page.show_in_nav);
+  $("page_seo_title").value = page.seo_title || "";
+  $("page_seo_description").value = page.seo_description || "";
+  $("pageEditorHeading").textContent = page.title || "Page editor";
+  showView("pageEditor");
+}
+
+function newPage() {
+  $("page_id").value = "";
+  $("page_title").value = "";
+  $("page_slug").value = "";
+  $("page_body_html").value = "";
+  $("page_sort_order").value = "0";
+  $("page_show_in_nav").checked = true;
+  $("page_seo_title").value = "";
+  $("page_seo_description").value = "";
+  $("pageEditorHeading").textContent = "New page";
+  $("pageMessage").textContent = "";
+  showView("pageEditor");
+}
+
+async function savePage(status) {
+  const payload = {
+    id: $("page_id").value ? Number($("page_id").value) : undefined,
+    title: $("page_title").value,
+    slug: $("page_slug").value,
+    body_html: $("page_body_html").value,
+    status: status || "draft",
+    show_in_nav: $("page_show_in_nav").checked,
+    sort_order: Number($("page_sort_order").value || 0),
+    seo_title: $("page_seo_title").value,
+    seo_description: $("page_seo_description").value
+  };
+  const result = await api("/api/pages", { method: "POST", body: JSON.stringify(payload) });
+  $("page_id").value = result.id;
+  $("page_slug").value = result.slug;
+  $("pageMessage").textContent = status === "published" ? "Page published. Publish site to update GitHub Pages." : "Page saved.";
+  await Promise.all([loadPages(), loadNavigation()]);
+  renderDashboard();
+  return result.id;
+}
+
+async function deletePage() {
+  if (!$("page_id").value || !confirm("Delete this page from D1?")) return;
+  await api("/api/pages/" + $("page_id").value, { method: "DELETE" });
+  await loadPages();
+  renderDashboard();
+  showView("pages");
 }
 
 async function pollPages(commitSha, liveUrl) {
@@ -350,6 +420,7 @@ function renderDashboard() {
   $("dashPosts").textContent = String(state.posts.length);
   $("dashPublished").textContent = String(published);
   $("dashDrafts").textContent = String(drafts);
+  $("dashPages").textContent = String(state.pages.length);
   const latest = state.deployments[0];
   $("dashDeploy").textContent = latest ? deploymentType(latest) + " / " + latest.status : "No deployments yet";
 }
@@ -402,11 +473,15 @@ document.querySelectorAll("[data-jump]").forEach((button) => button.onclick = ()
 $("refreshAll").onclick = refreshAll;
 $("newPost").onclick = newPost;
 $("dashNewPost").onclick = newPost;
+$("newPage").onclick = newPage;
 $("postSearch").oninput = renderPostsTable;
 $("statusFilter").onchange = renderPostsTable;
 $("postForm").onsubmit = async (event) => { event.preventDefault(); try { await savePost(); } catch (error) { $("postMessage").textContent = error.message; } };
 $("publishPost").onclick = publishPost;
 $("deletePost").onclick = deletePost;
+$("pageForm").onsubmit = async (event) => { event.preventDefault(); try { await savePage("draft"); } catch (error) { $("pageMessage").textContent = error.message; } };
+$("publishPage").onclick = async () => { try { await savePage("published"); } catch (error) { $("pageMessage").textContent = error.message; } };
+$("deletePage").onclick = deletePage;
 $("previewPost").onclick = previewPost;
 $("insertImage").onclick = insertImage;
 $("landingForm").onsubmit = async (event) => { event.preventDefault(); try { await saveLanding(); } catch (error) { $("landingMessage").textContent = error.message; } };

@@ -4,6 +4,7 @@ import { renderAdminShell, renderLoginPage } from "./render/admin.js";
 import { ADMIN_CSS } from "./admin/styles.js";
 import { ADMIN_APP_JS } from "./admin/app.js";
 import { listPosts, getPost, savePost, deletePost, publishPost, publishSite, pagesBuildStatus, listDeployments } from "./posts.js";
+import { listPages, getPage, savePage, deletePage } from "./pages.js";
 import { loadSettings, saveSettings, loadNavigation, saveNavigation, loadFooterLinks, saveFooterLinks } from "./site.js";
 import { all } from "./db.js";
 
@@ -31,6 +32,11 @@ export async function handleRequest(request, env) {
   if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return json({ post: await getPost(env, Number(url.pathname.split("/").pop())) });
   if (url.pathname.startsWith("/api/posts/") && request.method === "DELETE") return json(await deletePost(env, Number(url.pathname.split("/").pop())));
   if (url.pathname.startsWith("/api/publish/") && request.method === "POST") return json(await publishPost(env, Number(url.pathname.split("/").pop())));
+
+  if (url.pathname === "/api/pages" && request.method === "GET") return json({ pages: await listPages(env) });
+  if (url.pathname === "/api/pages" && request.method === "POST") return json(await savePage(env, await request.json()), 201);
+  if (url.pathname.startsWith("/api/pages/") && request.method === "GET") return json({ page: await getPage(env, Number(url.pathname.split("/").pop())) });
+  if (url.pathname.startsWith("/api/pages/") && request.method === "DELETE") return json(await deletePage(env, Number(url.pathname.split("/").pop())));
 
   if (url.pathname === "/api/settings" && request.method === "GET") return json({ settings: await loadSettings(env) });
   if (url.pathname === "/api/settings" && request.method === "POST") return json({ settings: await saveSettings(env, await request.json()) });
@@ -61,7 +67,7 @@ async function health(env) {
   };
 
   if (env.DB) {
-    for (const table of ["posts", "site_settings", "navigation_items", "footer_links", "deployments"]) {
+    for (const table of ["posts", "pages", "site_settings", "navigation_items", "footer_links", "deployments"]) {
       try {
         const result = await all(env, `SELECT COUNT(*) AS count FROM ${table}`);
         checks[table] = Number(result[0]?.count || 0);
