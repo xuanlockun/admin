@@ -25,6 +25,7 @@ export default {
       if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return await getPost(url, env);
       if (url.pathname.startsWith("/api/posts/") && request.method === "DELETE") return await deletePost(url, env);
       if (url.pathname.startsWith("/api/publish/") && request.method === "POST") return await publishPost(url, env);
+      if (url.pathname.startsWith("/api/pages-build/") && request.method === "GET") return await pagesBuildStatus(url, env);
 
       return new Response("Not found", { status: 404 });
     } catch (error) {
@@ -124,7 +125,7 @@ async function publishPost(url, env) {
   ).all();
   const posts = published.results || [];
 
-  await commitFiles(env, [
+  const commit = await commitFiles(env, [
     {
       path: `posts/${post.slug}/index.html`,
       content: renderPostHtml(env, { ...post, status: "published", published_at: post.published_at || now })
@@ -139,10 +140,129 @@ async function publishPost(url, env) {
     }
   ], `Publish ${post.slug}`);
 
-  return json({ ok: true, slug: post.slug });
+  return json({
+    ok: true,
+    slug: post.slug,
+    commit_sha: commit.sha,
+    commit_url: commit.html_url,
+    pages_url: await getPagesUrl(env),
+    live_url: await getLivePostUrl(env, post.slug)
+  });
 }
 
 async function commitFiles(env, files, message) {
+  assertGithubEnv(env);
+  const branch = await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/ref/heads/${env.GITHUB_BRANCH}`);
+  const baseSha = branch.object.sha;
+  const baseCommit = await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits/${baseSha}`);
+  const tree = await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/trees`, {
+    method: "POST",
+    body: JSON.stringify({
+      base_tree: baseCommit.tree.sha,
+      tree: files.map((file) => ({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        content: file.content
+      }))
+    })
+  });
+
+  const commit = await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits`, {
+    method: "POST",
+    body: JSON.stringify({
+      message,
+      tree: tree.sha,
+      parents: [baseSha]
+    })
+  });
+
+  await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/refs/heads/${env.GITHUB_BRANCH}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: commit.sha })
+  });
+
+  return {
+    sha: commit.sha,
+    html_url: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
+  };
+}
+
+async function pagesBuildStatus(url, env) {
+  assertGithubEnv(env);
+  const commitSha = url.pathname.split("/").pop();
+  const [pages, latestBuild] = await Promise.all([
+    getPages(env),
+    getLatestPagesBuild(env)
+  ]);
+  const buildCommitSha = latestBuild ? pagesBuildCommitSha(latestBuild) : null;
+
+  return json({
+    ok: true,
+    commit_sha: commitSha,
+    pages_url: pages?.html_url || null,
+    latest_build: latestBuild ? {
+      status: latestBuild.status,
+      error: latestBuild.error || null,
+      commit_sha: buildCommitSha,
+      commit_url: buildCommitSha ? `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${buildCommitSha}` : null,
+      matches_commit: buildCommitSha === commitSha,
+      updated_at: latestBuild.updated_at,
+      url: latestBuild.url
+    } : null
+  });
+}
+
+function pagesBuildCommitSha(build) {
+  if (!build?.commit) return null;
+  if (typeof build.commit === "string") return build.commit;
+  return build.commit.sha || build.commit.id || null;
+}
+
+async function getPages(env) {
+  try {
+    return await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/pages`);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function getPagesUrl(env) {
+  const pages = await getPages(env);
+  return pages?.html_url || null;
+}
+
+async function getLivePostUrl(env, slug) {
+  const pagesUrl = await getPagesUrl(env);
+  return pagesUrl ? `${pagesUrl.replace(/\/$/, "")}/posts/${slug}/` : null;
+}
+
+async function getLatestPagesBuild(env) {
+  try {
+    return await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/pages/builds/latest`);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function githubJson(env, path, options = {}) {
+  const response = await fetch(`https://api.github.com${path}`, {
+    ...options,
+    headers: {
+      ...githubHeaders(env),
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`GitHub API failed ${path}: ${detail}`);
+  }
+
+  return response.json();
+}
+
+async function commitFilesLegacy(env, files, message) {
   assertGithubEnv(env);
   for (const file of files) {
     const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${file.path}`;
@@ -326,9 +446,10 @@ function adminPage(env) {
     $("publish").onclick = async () => {
       try {
         const id = $("id").value || await save();
-        await api("/api/publish/" + id, { method: "POST" });
+        const publish = await api("/api/publish/" + id, { method: "POST" });
         await loadPosts();
-        message("Đã publish và commit sang repo client.");
+        message("Committed " + shortSha(publish.commit_sha) + ". Waiting for GitHub Pages...");
+        if (publish.commit_sha) pollPagesBuild(publish);
       } catch (error) { message(error.message); }
     };
 
@@ -354,6 +475,38 @@ function adminPage(env) {
     }
 
     function message(text) { $("message").textContent = text; }
+    function shortSha(value) { return value ? String(value).slice(0, 7) : ""; }
+    async function pollPagesBuild(publish) {
+      const maxAttempts = 20;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const status = await api("/api/pages-build/" + publish.commit_sha);
+          const build = status.latest_build;
+          if (!build) {
+            message("Committed " + shortSha(publish.commit_sha) + ". No GitHub Pages build yet.");
+            continue;
+          }
+
+          const match = build.matches_commit ? "" : " Latest build is for another commit.";
+          message("GitHub Pages: " + build.status + "." + match);
+
+          if (build.matches_commit && build.status === "built") {
+            message("Live: " + (publish.live_url || status.pages_url || "GitHub Pages built."));
+            return;
+          }
+
+          if (build.matches_commit && build.status === "errored") {
+            message("GitHub Pages build failed: " + (build.error?.message || "unknown error"));
+            return;
+          }
+        } catch (error) {
+          message("Could not read GitHub Pages status: " + error.message);
+          return;
+        }
+      }
+      message("Committed " + shortSha(publish.commit_sha) + ". GitHub Pages still not done after 60s.");
+    }
     function escapeText(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
     }
