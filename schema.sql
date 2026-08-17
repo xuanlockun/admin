@@ -7,7 +7,14 @@ CREATE TABLE IF NOT EXISTS posts (
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  published_at TEXT
+  published_at TEXT,
+  deploy_commit_sha TEXT,
+  deploy_commit_url TEXT,
+  deploy_pages_url TEXT,
+  deploy_live_url TEXT,
+  deploy_status TEXT NOT NULL DEFAULT 'idle',
+  deploy_error TEXT,
+  deploy_updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);

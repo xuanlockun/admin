@@ -63,7 +63,7 @@ async function sessionValue(env) {
 async function listPosts(env) {
   assertDatabase(env);
   const result = await env.DB.prepare(
-    "SELECT id, title, slug, excerpt, status, created_at, updated_at, published_at FROM posts ORDER BY updated_at DESC"
+    "SELECT id, title, slug, excerpt, status, created_at, updated_at, published_at, deploy_commit_sha, deploy_status, deploy_updated_at FROM posts ORDER BY updated_at DESC"
   ).all();
   return json({ posts: result.results || [] });
 }
@@ -140,14 +140,22 @@ async function publishPost(url, env) {
     }
   ], `Publish ${post.slug}`);
 
-  return json({
+  const deploy = {
     ok: true,
+    post_id: id,
     slug: post.slug,
     commit_sha: commit.sha,
     commit_url: commit.html_url,
     pages_url: await getPagesUrl(env),
-    live_url: await getLivePostUrl(env, post.slug)
-  });
+    live_url: await getLivePostUrl(env, post.slug),
+    deploy_status: "committed"
+  };
+
+  await env.DB.prepare(
+    "UPDATE posts SET deploy_commit_sha = ?, deploy_commit_url = ?, deploy_pages_url = ?, deploy_live_url = ?, deploy_status = ?, deploy_error = NULL, deploy_updated_at = ? WHERE id = ?"
+  ).bind(deploy.commit_sha, deploy.commit_url, deploy.pages_url, deploy.live_url, deploy.deploy_status, new Date().toISOString(), id).run();
+
+  return json(deploy);
 }
 
 async function commitFiles(env, files, message) {
@@ -190,6 +198,7 @@ async function commitFiles(env, files, message) {
 
 async function pagesBuildStatus(url, env) {
   assertGithubEnv(env);
+  assertDatabase(env);
   const commitSha = url.pathname.split("/").pop();
   const [pages, latestBuild] = await Promise.all([
     getPages(env),
@@ -197,20 +206,42 @@ async function pagesBuildStatus(url, env) {
   ]);
   const buildCommitSha = latestBuild ? pagesBuildCommitSha(latestBuild) : null;
 
+  const status = latestBuild?.status || "unknown";
+  const matchesCommit = buildCommitSha === commitSha;
+  const deployStatus = matchesCommit ? pagesDeployStatus(status) : "waiting";
+  const deployError = latestBuild?.error ? JSON.stringify(latestBuild.error) : null;
+  const post = await env.DB.prepare("SELECT id, deploy_live_url FROM posts WHERE deploy_commit_sha = ?").bind(commitSha).first();
+  if (post) {
+    await env.DB.prepare(
+      "UPDATE posts SET deploy_status = ?, deploy_error = ?, deploy_pages_url = COALESCE(?, deploy_pages_url), deploy_updated_at = ? WHERE id = ?"
+    ).bind(deployStatus, deployError, pages?.html_url || null, new Date().toISOString(), post.id).run();
+  }
+
   return json({
     ok: true,
     commit_sha: commitSha,
     pages_url: pages?.html_url || null,
+    deploy_status: deployStatus,
+    deploy_error: deployError,
+    live_url: post?.deploy_live_url || null,
     latest_build: latestBuild ? {
       status: latestBuild.status,
       error: latestBuild.error || null,
       commit_sha: buildCommitSha,
       commit_url: buildCommitSha ? `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${buildCommitSha}` : null,
-      matches_commit: buildCommitSha === commitSha,
+      matches_commit: matchesCommit,
       updated_at: latestBuild.updated_at,
       url: latestBuild.url
     } : null
   });
+}
+
+function pagesDeployStatus(status) {
+  if (status === "built") return "built";
+  if (status === "errored") return "failed";
+  if (status === "building") return "building";
+  if (status === "queued") return "queued";
+  return status || "unknown";
 }
 
 function pagesBuildCommitSha(build) {
@@ -357,6 +388,13 @@ function adminPage(env) {
     .post strong, .post small { display: block; }
     .post small { color: #59635a; margin-top: 3px; }
     .status { border: 1px solid #b8c0b2; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+    .deploy-panel { display: none; margin-top: 16px; border: 1px solid #d9ddd5; border-radius: 6px; background: #fff; padding: 14px; }
+    .deploy-panel.active { display: grid; gap: 8px; }
+    .deploy-title { font-weight: 700; }
+    .deploy-line { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #eef0eb; padding-top: 8px; color: #46514a; }
+    .deploy-line:first-of-type { border-top: 0; padding-top: 0; }
+    .deploy-line strong { color: #172026; text-align: right; }
+    .deploy-line a { word-break: break-all; }
     @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid #d9ddd5; } }
   </style>
 </head>
@@ -386,11 +424,19 @@ function adminPage(env) {
           <button type="button" class="danger" id="deletePost">Xóa</button>
           <span id="message"></span>
         </div>
+        <div class="deploy-panel" id="deployPanel" aria-live="polite">
+          <div class="deploy-title">Deploy progress</div>
+          <div class="deploy-line"><span>Draft</span><strong id="deployDraft">Idle</strong></div>
+          <div class="deploy-line"><span>Commit</span><strong id="deployCommit">Idle</strong></div>
+          <div class="deploy-line"><span>GitHub Pages</span><strong id="deployPages">Idle</strong></div>
+          <div class="deploy-line"><span>Live URL</span><strong id="deployLive">Idle</strong></div>
+        </div>
       </form>
     </section>
   </main>
   <script>
     const state = { posts: [] };
+    let activePollCommit = "";
     const $ = (id) => document.getElementById(id);
 
     async function api(path, options) {
@@ -410,6 +456,8 @@ function adminPage(env) {
       state.posts = (await api("/api/posts")).posts;
       $("posts").innerHTML = state.posts.map((post) => '<button class="post" data-id="' + post.id + '"><strong>' + escapeText(post.title) + '</strong><small>' + escapeText(post.slug) + ' · <span class="status">' + escapeText(post.status) + '</span></small></button>').join("");
       document.querySelectorAll(".post").forEach((button) => button.onclick = () => loadPost(button.dataset.id));
+      const pending = state.posts.find((post) => post.deploy_commit_sha && !["built", "failed"].includes(post.deploy_status));
+      if (!$("id").value && pending) loadPost(pending.id);
     }
 
     async function loadPost(id) {
@@ -419,6 +467,7 @@ function adminPage(env) {
       $("slug").value = post.slug;
       $("excerpt").value = post.excerpt || "";
       $("body_html").value = post.body_html || "";
+      renderDeployFromPost(post);
       message("Đã mở bài viết.");
     }
 
@@ -444,13 +493,27 @@ function adminPage(env) {
     };
 
     $("publish").onclick = async () => {
+      $("publish").disabled = true;
+      resetDeploy();
       try {
+        deployStep("draft", "Saving...");
         const id = $("id").value || await save();
+        deployStep("draft", "Saved");
+        deployStep("commit", "Committing...");
         const publish = await api("/api/publish/" + id, { method: "POST" });
         await loadPosts();
         message("Committed " + shortSha(publish.commit_sha) + ". Waiting for GitHub Pages...");
+        deployStep("commit", publish.commit_url ? '<a href="' + publish.commit_url + '" target="_blank" rel="noopener">' + shortSha(publish.commit_sha) + "</a>" : "Committed");
+        deployStep("pages", "Waiting...");
+        deployStep("live", publish.live_url ? '<a href="' + publish.live_url + '" target="_blank" rel="noopener">' + publish.live_url + "</a>" : "Waiting");
         if (publish.commit_sha) pollPagesBuild(publish);
-      } catch (error) { message(error.message); }
+      } catch (error) {
+        message(error.message);
+        deployStep("pages", "Error");
+        deployStep("live", escapeText(error.message));
+      } finally {
+        $("publish").disabled = false;
+      }
     };
 
     $("deletePost").onclick = async () => {
@@ -475,37 +538,86 @@ function adminPage(env) {
     }
 
     function message(text) { $("message").textContent = text; }
+    function resetDeploy() {
+      $("deployPanel").classList.add("active");
+      deployStep("draft", "Idle");
+      deployStep("commit", "Idle");
+      deployStep("pages", "Idle");
+      deployStep("live", "Idle");
+    }
+    function deployStep(step, value) {
+      const ids = { draft: "deployDraft", commit: "deployCommit", pages: "deployPages", live: "deployLive" };
+      const el = $(ids[step]);
+      if (!el) return;
+      $("deployPanel").classList.add("active");
+      el.innerHTML = value;
+    }
+    function renderDeployFromPost(post) {
+      if (!post.deploy_commit_sha) {
+        $("deployPanel").classList.remove("active");
+        return;
+      }
+
+      $("deployPanel").classList.add("active");
+      deployStep("draft", post.status === "published" ? "Published" : "Saved");
+      deployStep("commit", post.deploy_commit_url ? '<a href="' + post.deploy_commit_url + '" target="_blank" rel="noopener">' + shortSha(post.deploy_commit_sha) + "</a>" : shortSha(post.deploy_commit_sha));
+      deployStep("pages", post.deploy_status || "committed");
+      deployStep("live", post.deploy_live_url ? '<a href="' + post.deploy_live_url + '" target="_blank" rel="noopener">' + post.deploy_live_url + "</a>" : "Waiting");
+
+      if (!["built", "failed"].includes(post.deploy_status)) {
+        pollPagesBuild({
+          post_id: post.id,
+          commit_sha: post.deploy_commit_sha,
+          commit_url: post.deploy_commit_url,
+          live_url: post.deploy_live_url,
+          pages_url: post.deploy_pages_url
+        });
+      }
+    }
     function shortSha(value) { return value ? String(value).slice(0, 7) : ""; }
     async function pollPagesBuild(publish) {
+      activePollCommit = publish.commit_sha;
       const maxAttempts = 20;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (activePollCommit !== publish.commit_sha) return;
         await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (activePollCommit !== publish.commit_sha) return;
         try {
           const status = await api("/api/pages-build/" + publish.commit_sha);
           const build = status.latest_build;
           if (!build) {
             message("Committed " + shortSha(publish.commit_sha) + ". No GitHub Pages build yet.");
+            deployStep("pages", "No build yet");
             continue;
           }
 
           const match = build.matches_commit ? "" : " Latest build is for another commit.";
           message("GitHub Pages: " + build.status + "." + match);
+          deployStep("pages", build.status + (build.matches_commit ? "" : " (other commit)"));
 
           if (build.matches_commit && build.status === "built") {
             message("Live: " + (publish.live_url || status.pages_url || "GitHub Pages built."));
+            deployStep("pages", "Built");
+            const liveUrl = publish.live_url || status.live_url;
+            deployStep("live", liveUrl ? '<a href="' + liveUrl + '" target="_blank" rel="noopener">' + liveUrl + "</a>" : "GitHub Pages built");
             return;
           }
 
           if (build.matches_commit && build.status === "errored") {
             message("GitHub Pages build failed: " + (build.error?.message || "unknown error"));
+            deployStep("pages", "Failed");
+            deployStep("live", escapeText(build.error?.message || "unknown error"));
             return;
           }
         } catch (error) {
           message("Could not read GitHub Pages status: " + error.message);
+          deployStep("pages", "Status read failed");
+          deployStep("live", escapeText(error.message));
           return;
         }
       }
       message("Committed " + shortSha(publish.commit_sha) + ". GitHub Pages still not done after 60s.");
+      deployStep("pages", "Still pending after 60s");
     }
     function escapeText(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
