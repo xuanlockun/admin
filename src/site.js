@@ -21,7 +21,8 @@ export function defaultSettings(env) {
     nav_cta_label: "",
     nav_cta_url: "",
     featured_posts_count: "6",
-    footer_text: ""
+    footer_text: "",
+    theme_id: "editorial"
   };
 }
 
@@ -169,6 +170,7 @@ function normalizeSettings(input, env) {
     nav_cta_label: text("nav_cta_label").trim(),
     nav_cta_url: text("nav_cta_url").trim(),
     featured_posts_count: String(Math.max(1, Math.min(24, Number(input.featured_posts_count || defaults.featured_posts_count)))),
-    footer_text: text("footer_text")
+    footer_text: text("footer_text"),
+    theme_id: ["editorial", "studio"].includes(text("theme_id")) ? text("theme_id") : defaults.theme_id
   };
 }

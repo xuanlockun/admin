@@ -22,6 +22,7 @@ export function renderAdminShell(env) {
         <button data-view="dashboard" class="active">Dashboard <span>Overview</span></button>
         <button data-view="posts">Posts <span>Content</span></button>
         <button data-view="landing">Landing <span>Home</span></button>
+        <button data-view="theme">Theme <span>Design</span></button>
         <button data-view="navigation">Navigation <span>Header</span></button>
         <button data-view="footer">Footer <span>Links</span></button>
         <button data-view="deployments">Deployments <span>Status</span></button>
@@ -48,6 +49,33 @@ export function renderAdminShell(env) {
             <div class="panel"><h2>Posts</h2><p class="muted" id="dashPosts">Loading...</p></div>
             <div class="panel"><h2>Latest deploy</h2><p class="muted" id="dashDeploy">Loading...</p></div>
             <div class="panel"><h2>GitHub Pages</h2><p class="muted" id="dashPages">Use Deployments to track builds.</p></div>
+          </div>
+        </section>
+
+        <section class="view" id="themeView">
+          <div class="panel">
+            <div class="actions" style="justify-content: space-between; margin-bottom: 16px;">
+              <div>
+                <h2 style="margin:0;">Client themes</h2>
+                <p class="muted" style="margin:4px 0 0;">Choose a complete visual style for the static site.</p>
+              </div>
+              <button id="saveTheme" type="button">Save theme</button>
+            </div>
+            <div class="theme-grid">
+              <label class="theme-card" data-theme-card="editorial">
+                <input type="radio" name="theme_id" value="editorial">
+                <div class="theme-preview editorial-preview">
+                  <div></div><strong>Editorial</strong><span>Magazine typography, article-first layout.</span>
+                </div>
+              </label>
+              <label class="theme-card" data-theme-card="studio">
+                <input type="radio" name="theme_id" value="studio">
+                <div class="theme-preview studio-preview">
+                  <div></div><strong>Studio</strong><span>Polished hero, cards, and CTA-focused sections.</span>
+                </div>
+              </label>
+            </div>
+            <p class="toast" id="themeMessage"></p>
           </div>
         </section>
 
@@ -82,6 +110,8 @@ export function renderAdminShell(env) {
               <label>SEO description <textarea id="seo_description"></textarea></label>
               <div class="actions">
                 <button type="submit">Save draft</button>
+                <button type="button" class="secondary" id="previewPost">Preview</button>
+                <button type="button" class="secondary" id="insertImage">Insert image</button>
                 <button type="button" id="publishPost">Publish</button>
                 <button type="button" class="danger" id="deletePost">Delete</button>
               </div>
@@ -182,6 +212,32 @@ export function renderAdminShell(env) {
         </section>
       </div>
     </main>
+  </div>
+  <div class="modal-backdrop hidden" id="publishModal" role="dialog" aria-modal="true">
+    <div class="publish-modal">
+      <div class="modal-mark" id="modalMark">⏳</div>
+      <h2 id="modalTitle">Publishing</h2>
+      <p id="modalText">Preparing publish workflow.</p>
+      <div class="modal-progress">
+        <div class="modal-step" id="modalStepSave"><span>Save</span><strong>Waiting</strong></div>
+        <div class="modal-step" id="modalStepCommit"><span>Commit</span><strong>Waiting</strong></div>
+        <div class="modal-step" id="modalStepPages"><span>GitHub Pages</span><strong>Waiting</strong></div>
+      </div>
+      <div class="actions modal-actions">
+        <a class="button secondary hidden" id="modalLive" href="#" target="_blank" rel="noopener">Open live</a>
+        <a class="button secondary hidden" id="modalCommit" href="#" target="_blank" rel="noopener">View commit</a>
+        <button class="secondary" id="modalClose" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop hidden" id="previewModal" role="dialog" aria-modal="true">
+    <div class="preview-modal">
+      <div class="actions" style="justify-content: space-between;">
+        <h2 style="margin:0;">Post preview</h2>
+        <button class="secondary" id="previewClose" type="button">Close</button>
+      </div>
+      <article class="preview-article" id="previewArticle"></article>
+    </div>
   </div>
   <script src="/admin/app.js"></script>
 </body>

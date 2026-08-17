@@ -51,6 +51,9 @@ INSERT OR IGNORE INTO site_settings (key, value) VALUES
   ('featured_posts_count', '6'),
   ('footer_text', '');
 
+INSERT OR IGNORE INTO site_settings (key, value) VALUES
+  ('theme_id', 'editorial');
+
 CREATE TABLE IF NOT EXISTS navigation_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   label TEXT NOT NULL,

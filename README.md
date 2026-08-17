@@ -62,3 +62,5 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
 - CKEditor 5 rich text editor loaded from the CKEditor CDN.
 - D1-backed site settings, header navigation, footer links, deployments, post SEO, and cover image fields.
 - GitHub Pages build tracking through the GitHub Pages REST API.
+- Publish progress modal for post/site publish.
+- Built-in client themes: Editorial and Studio.

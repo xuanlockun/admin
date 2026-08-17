@@ -31,6 +31,7 @@ function showView(view) {
     posts: ["Posts", "Manage draft and published articles."],
     postEditor: ["Post editor", "Edit content, SEO and publishing."],
     landing: ["Landing page", "Manage home page content and sections."],
+    theme: ["Theme", "Choose the visual system for the static site."],
     navigation: ["Navigation", "Header links and call to action."],
     footer: ["Footer", "Footer copy and links."],
     deployments: ["Deployments", "Track GitHub commits and Pages builds."],
@@ -103,11 +104,19 @@ async function savePost() {
 async function publishPost() {
   $("publishPost").disabled = true;
   try {
+    openPublishModal("Publishing post", "Saving draft before publish.");
+    modalStep("modalStepSave", "Saving");
     const id = $("post_id").value || await savePost();
+    modalStep("modalStepSave", "Saved");
     $("postMessage").textContent = "Publishing...";
     deployStep("deployCommit", "Committing...");
     deployStep("deployPages", "Waiting");
+    modalStep("modalStepCommit", "Committing");
     const result = await api("/api/publish/" + id, { method: "POST" });
+    modalStep("modalStepCommit", "Committed");
+    modalLinks(result);
+    modalStep("modalStepPages", "Waiting");
+    setModalState("loading", "Waiting for GitHub Pages", "Commit created. GitHub Pages is building the public site.");
     $("postMessage").textContent = "Committed " + shortSha(result.commit_sha) + ". Waiting for GitHub Pages.";
     deployStep("deployCommit", commitLink(result.commit_url, result.commit_sha));
     deployStep("deployLive", result.live_url ? link(result.live_url, result.live_url) : "Waiting");
@@ -115,6 +124,7 @@ async function publishPost() {
     await Promise.all([loadPosts(), loadDeployments()]);
   } catch (error) {
     $("postMessage").textContent = error.message;
+    setModalState("error", "Publish failed", error.message);
   } finally {
     $("publishPost").disabled = false;
   }
@@ -125,6 +135,18 @@ async function deletePost() {
   await api("/api/posts/" + $("post_id").value, { method: "DELETE" });
   await loadPosts();
   showView("posts");
+}
+
+function previewPost() {
+  $("previewArticle").innerHTML = '<h1>' + esc($("title").value || "Untitled") + '</h1>' + ($("excerpt").value ? '<p class="muted">' + esc($("excerpt").value) + '</p>' : "") + getEditorData();
+  $("previewModal").classList.remove("hidden");
+}
+
+function insertImage() {
+  const url = prompt("Image URL");
+  if (!url) return;
+  const html = '<figure><img src="' + attr(url) + '" alt=""><figcaption></figcaption></figure>';
+  setEditorData(getEditorData() + html);
 }
 
 function renderPostDeploy(post) {
@@ -143,20 +165,27 @@ async function pollPages(commitSha, liveUrl) {
     const status = await api("/api/pages-build/" + commitSha);
     const build = status.latest_build;
     deployStep("deployPages", build ? build.status + (build.matches_commit ? "" : " (other commit)") : "No build yet");
+    modalStep("modalStepPages", build ? build.status : "No build yet");
     if (build?.matches_commit && build.status === "built") {
       deployStep("deployPages", "Built");
       deployStep("deployLive", link(liveUrl || status.live_url || status.pages_url, liveUrl || status.live_url || status.pages_url || "Live"));
+      modalStep("modalStepPages", "Built");
+      setModalState("success", "Published", "GitHub Pages is live.");
+      modalLinks({ live_url: liveUrl || status.live_url || status.pages_url });
       await loadDeployments();
       return;
     }
     if (build?.matches_commit && build.status === "errored") {
       deployStep("deployPages", "Failed");
       deployStep("deployLive", esc(build.error?.message || "Unknown error"));
+      modalStep("modalStepPages", "Failed");
+      setModalState("error", "GitHub Pages failed", build.error?.message || "Unknown error");
       await loadDeployments();
       return;
     }
   }
   deployStep("deployPages", "Still pending");
+  modalStep("modalStepPages", "Still pending");
 }
 
 async function loadSettings() {
@@ -165,14 +194,26 @@ async function loadSettings() {
   for (const [key, value] of Object.entries(state.settings)) {
     if ($(key)) $(key).value = value || "";
   }
+  const theme = state.settings.theme_id || "editorial";
+  document.querySelectorAll('input[name="theme_id"]').forEach((input) => {
+    input.checked = input.value === theme;
+    input.closest(".theme-card").classList.toggle("selected", input.checked);
+  });
 }
 
 async function saveSettings() {
+  const checkedTheme = document.querySelector('input[name="theme_id"]:checked');
   const keys = ["site_title", "logo_text", "logo_url", "favicon_url", "default_seo_title", "default_seo_description", "accent_color", "custom_css", "hero_title", "hero_subtitle", "primary_cta_label", "primary_cta_url", "secondary_cta_label", "secondary_cta_url", "intro_html", "custom_html", "featured_posts_count", "nav_cta_label", "nav_cta_url", "footer_text"];
   const payload = Object.fromEntries(keys.filter((key) => $(key)).map((key) => [key, $(key).value]));
+  payload.theme_id = checkedTheme ? checkedTheme.value : state.settings.theme_id || "editorial";
   const result = await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
   state.settings = result.settings;
   return result.settings;
+}
+
+async function saveTheme() {
+  await saveSettings();
+  $("themeMessage").textContent = "Theme saved. Publish site to update GitHub Pages.";
 }
 
 async function saveLanding() {
@@ -183,12 +224,57 @@ async function saveLanding() {
 async function publishSite() {
   $("publishSite").disabled = true;
   try {
+    openPublishModal("Publishing site", "Saving site settings.");
+    modalStep("modalStepSave", "Saving");
     await saveSettings();
+    modalStep("modalStepSave", "Saved");
+    modalStep("modalStepCommit", "Committing");
     const result = await api("/api/publish-site", { method: "POST" });
+    modalStep("modalStepCommit", "Committed");
+    modalStep("modalStepPages", "Waiting");
+    modalLinks(result);
+    setModalState("loading", "Waiting for GitHub Pages", "Site commit created. GitHub Pages is building.");
+    if (result.commit_sha) pollPages(result.commit_sha, result.live_url || result.pages_url);
     $("landingMessage").textContent = "Published " + shortSha(result.commit_sha);
     await loadDeployments();
   } finally {
     $("publishSite").disabled = false;
+  }
+}
+
+function openPublishModal(title, text) {
+  $("publishModal").classList.remove("hidden");
+  $("modalClose").disabled = false;
+  setModalState("loading", title, text);
+  modalStep("modalStepSave", "Waiting");
+  modalStep("modalStepCommit", "Waiting");
+  modalStep("modalStepPages", "Waiting");
+  $("modalLive").classList.add("hidden");
+  $("modalCommit").classList.add("hidden");
+}
+
+function setModalState(stateName, title, text) {
+  const mark = $("modalMark");
+  mark.className = "modal-mark " + (stateName === "loading" ? "loading" : stateName === "success" ? "success" : stateName === "error" ? "error" : "");
+  mark.textContent = stateName === "success" ? "✓" : stateName === "error" ? "!" : "⏳";
+  $("modalTitle").textContent = title;
+  $("modalText").textContent = text;
+}
+
+function modalStep(id, value) {
+  const row = $(id);
+  if (row) row.querySelector("strong").textContent = value;
+}
+
+function modalLinks(result) {
+  if (result.commit_url) {
+    $("modalCommit").href = result.commit_url;
+    $("modalCommit").classList.remove("hidden");
+  }
+  const live = result.live_url || result.pages_url;
+  if (live) {
+    $("modalLive").href = live;
+    $("modalLive").classList.remove("hidden");
   }
 }
 
@@ -274,14 +360,22 @@ $("newPost").onclick = newPost;
 $("postForm").onsubmit = async (event) => { event.preventDefault(); try { await savePost(); } catch (error) { $("postMessage").textContent = error.message; } };
 $("publishPost").onclick = publishPost;
 $("deletePost").onclick = deletePost;
+$("previewPost").onclick = previewPost;
+$("insertImage").onclick = insertImage;
 $("landingForm").onsubmit = async (event) => { event.preventDefault(); try { await saveLanding(); } catch (error) { $("landingMessage").textContent = error.message; } };
 $("publishLanding").onclick = publishSite;
 $("publishSite").onclick = publishSite;
 $("settingsForm").onsubmit = async (event) => { event.preventDefault(); try { await saveSettings(); $("settingsMessage").textContent = "Settings saved."; } catch (error) { $("settingsMessage").textContent = error.message; } };
+document.querySelectorAll('input[name="theme_id"]').forEach((input) => input.onchange = () => {
+  document.querySelectorAll(".theme-card").forEach((card) => card.classList.toggle("selected", card.querySelector("input").checked));
+});
+$("saveTheme").onclick = saveTheme;
 $("addNavItem").onclick = () => $("navItems").insertAdjacentHTML("beforeend", linkRow({}, document.querySelectorAll("#navItems .link-row").length));
 $("saveNavigation").onclick = saveNavigation;
 $("addFooterItem").onclick = () => $("footerItems").insertAdjacentHTML("beforeend", linkRow({}, document.querySelectorAll("#footerItems .link-row").length));
 $("saveFooter").onclick = saveFooter;
+$("modalClose").onclick = () => $("publishModal").classList.add("hidden");
+$("previewClose").onclick = () => $("previewModal").classList.add("hidden");
 
 initEditor().catch((error) => { $("postMessage").textContent = "Editor failed: " + error.message; });
 refreshAll().then(() => {
