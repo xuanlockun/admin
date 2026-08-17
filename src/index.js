@@ -1,26 +1,11 @@
 const COOKIE_NAME = "cms_session";
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS posts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  slug TEXT NOT NULL UNIQUE,
-  excerpt TEXT NOT NULL DEFAULT '',
-  body_html TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  published_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status);
-CREATE INDEX IF NOT EXISTS idx_posts_updated_at ON posts(updated_at);
-`;
-let schemaReady = false;
 
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
 
+      if (url.pathname === "/api/health" && request.method === "GET") return health(env);
       if (url.pathname === "/login") {
         return request.method === "POST" ? login(request, env) : html(loginPage());
       }
@@ -35,7 +20,6 @@ export default {
       }
 
       if (url.pathname === "/") return html(adminPage(env));
-      if (url.pathname === "/api/health" && request.method === "GET") return health(env);
       if (url.pathname === "/api/posts" && request.method === "GET") return listPosts(env);
       if (url.pathname === "/api/posts" && request.method === "POST") return savePost(request, env);
       if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return getPost(url, env);
@@ -76,7 +60,7 @@ async function sessionValue(env) {
 }
 
 async function listPosts(env) {
-  await ensureDatabase(env);
+  assertDatabase(env);
   const result = await env.DB.prepare(
     "SELECT id, title, slug, excerpt, status, created_at, updated_at, published_at FROM posts ORDER BY updated_at DESC"
   ).all();
@@ -84,7 +68,7 @@ async function listPosts(env) {
 }
 
 async function getPost(url, env) {
-  await ensureDatabase(env);
+  assertDatabase(env);
   const id = Number(url.pathname.split("/").pop());
   const post = await env.DB.prepare("SELECT * FROM posts WHERE id = ?").bind(id).first();
   if (!post) return json({ error: "Post not found" }, 404);
@@ -92,7 +76,7 @@ async function getPost(url, env) {
 }
 
 async function savePost(request, env) {
-  await ensureDatabase(env);
+  assertDatabase(env);
   const input = await request.json();
   const now = new Date().toISOString();
   const title = requiredString(input.title, "title");
@@ -118,14 +102,14 @@ async function savePost(request, env) {
 }
 
 async function deletePost(url, env) {
-  await ensureDatabase(env);
+  assertDatabase(env);
   const id = Number(url.pathname.split("/").pop());
   await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(id).run();
   return json({ ok: true });
 }
 
 async function publishPost(url, env) {
-  await ensureDatabase(env);
+  assertDatabase(env);
   const id = Number(url.pathname.split("/").pop());
   const now = new Date().toISOString();
   const post = await env.DB.prepare("SELECT * FROM posts WHERE id = ?").bind(id).first();
@@ -201,14 +185,8 @@ function assertGithubEnv(env) {
   }
 }
 
-async function ensureDatabase(env) {
+function assertDatabase(env) {
   if (!env.DB) throw new Error("Missing D1 binding DB. Add a D1 database binding named DB in the Worker settings.");
-  if (schemaReady) return;
-  const statements = SCHEMA_SQL.split(";").map((statement) => statement.trim()).filter(Boolean);
-  for (const statement of statements) {
-    await env.DB.prepare(statement).run();
-  }
-  schemaReady = true;
 }
 
 async function health(env) {
@@ -222,9 +200,12 @@ async function health(env) {
   };
 
   if (env.DB) {
-    await ensureDatabase(env);
-    const result = await env.DB.prepare("SELECT COUNT(*) AS count FROM posts").first();
-    checks.posts_table = Number(result?.count || 0);
+    try {
+      const result = await env.DB.prepare("SELECT COUNT(*) AS count FROM posts").first();
+      checks.posts_table = Number(result?.count || 0);
+    } catch (error) {
+      checks.posts_table_error = error?.message || String(error);
+    }
   }
 
   return json({ ok: true, checks });

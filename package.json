@@ -7,7 +7,9 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute cms_posts --local --file=./schema.sql",
-    "db:init:remote": "wrangler d1 execute cms_posts --remote --file=./schema.sql"
+    "db:init:remote": "wrangler d1 execute cms_posts --remote --file=./schema.sql",
+    "db:migrate": "wrangler d1 migrations apply cms_posts --local",
+    "db:migrate:remote": "wrangler d1 migrations apply cms_posts --remote"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

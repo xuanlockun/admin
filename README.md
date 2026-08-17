@@ -17,16 +17,20 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
    - Binding name: `DB`
    - Database: create or select `cms_posts`
 
-   The Worker creates its tables automatically on first API request.
+4. Initialize D1 tables from the repository:
 
-4. Configure repository target in the Worker dashboard variables:
+   ```sh
+   npx wrangler d1 migrations apply cms_posts --remote
+   ```
+
+5. Configure repository target in the Worker dashboard variables:
 
    - `GITHUB_OWNER`
    - `GITHUB_REPO`
    - `GITHUB_BRANCH`
    - `SITE_TITLE`
 
-5. Add Worker secrets:
+6. Add Worker secrets:
 
    ```sh
    wrangler secret put ADMIN_PASSWORD
@@ -35,7 +39,7 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
 
    `GITHUB_TOKEN` needs permission to write contents to the client repo.
 
-6. Run locally:
+7. Run locally:
 
    ```sh
    npm run dev
