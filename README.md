@@ -10,29 +10,23 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
    npm install
    ```
 
-2. Create a D1 database and update `wrangler.toml`:
+2. Import/deploy this repo as a Cloudflare Worker.
 
-   ```sh
-   wrangler d1 create cms_posts
-   ```
+3. In the Worker dashboard, add a D1 database binding:
 
-   Copy the returned `database_id` into `wrangler.toml`.
+   - Binding name: `DB`
+   - Database: create or select `cms_posts`
 
-3. Initialize tables:
+   The Worker creates its tables automatically on first API request.
 
-   ```sh
-   npm run db:init
-   npm run db:init:remote
-   ```
-
-4. Configure repository target in `wrangler.toml`:
+4. Configure repository target in the Worker dashboard variables:
 
    - `GITHUB_OWNER`
    - `GITHUB_REPO`
    - `GITHUB_BRANCH`
    - `SITE_TITLE`
 
-5. Add secrets:
+5. Add Worker secrets:
 
    ```sh
    wrangler secret put ADMIN_PASSWORD
@@ -54,4 +48,3 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
   - `posts/<slug>/index.html`
   - `posts.json`
   - `index.html`
-

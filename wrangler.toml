@@ -1,18 +1,8 @@
-name = "cms-admin"
+name = "admin"
 main = "src/index.js"
 compatibility_date = "2026-08-17"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "cms_posts"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-[vars]
-GITHUB_OWNER = "your-github-user-or-org"
-GITHUB_REPO = "client-repo-name"
-GITHUB_BRANCH = "main"
-SITE_TITLE = "Static CMS"
-
-# Secrets, set with:
-# wrangler secret put ADMIN_PASSWORD
-# wrangler secret put GITHUB_TOKEN
+# Configure these in the Cloudflare Worker dashboard after importing the repo:
+# - D1 binding: DB
+# - Variables: GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, SITE_TITLE
+# - Secrets: ADMIN_PASSWORD, GITHUB_TOKEN
