@@ -437,3 +437,199 @@ Next implementation order:
 - Theme references reviewed:
   - CMS theme docs describe a theme as a collection of CSS/resources that define visual identity.
   - Website template catalogs reinforce that a presentable site needs typography, spacing, nav/footer, CTA, and reusable sections, not just a blank page with a title.
+
+## Admin UI Rebuild Decision
+
+Current direction is still not acceptable. Do not keep polishing the current custom dashboard. Rebuild the admin UI shell and core components from a mature admin template pattern.
+
+Decision:
+
+- Use a Tabler-inspired structure as the base direction.
+- Do not copy random Dribbble visuals.
+- Do not invent a dashboard component system from scratch.
+- Keep implementation lightweight enough for Cloudflare Worker-rendered HTML.
+- Prefer CDN-loaded CSS/JS for the admin template first, then move to bundled assets only if necessary.
+
+Why Tabler-style:
+
+- It is purpose-built for responsive admin panels.
+- It has a known page/sidebar/header layout.
+- It has production-ready cards, tables, forms, badges, modals, empty states, and page headers.
+- It fits this CMS better than a marketing-style UI.
+
+Rejected direction:
+
+- More custom CSS on the current shell.
+- Decorative dashboard cards without workflow value.
+- A fake "pretty" UI that makes content editing slower.
+
+## Admin UI Rebuild Tasks
+
+### UI Foundation
+
+- Replace current `src/admin/styles.js` with a real admin design system layer.
+- Either:
+  - Load Tabler CSS from CDN in `render/admin.js`.
+  - Or vendor the needed Tabler CSS locally if CDN is undesirable.
+- Keep custom CSS only for CMS-specific layout details.
+- Normalize spacing, typography, cards, buttons, forms, badges, modals, and tables.
+
+### Shell Layout
+
+New dashboard shell:
+
+- App frame:
+  - Left vertical sidebar.
+  - Top page header.
+  - Main content area.
+  - Optional breadcrumb/subtitle row.
+
+- Sidebar:
+  - Brand block.
+  - Primary nav:
+    - Dashboard
+    - Posts
+    - Landing
+    - Theme
+    - Navigation
+    - Footer
+    - Deployments
+    - Settings
+  - Logout at bottom.
+  - Active nav indicator must be obvious.
+  - Icons should be added for scanability.
+
+- Topbar/page header:
+  - Page title.
+  - Short subtitle.
+  - Primary action on the right.
+  - Secondary refresh/action controls.
+
+### View Design
+
+Dashboard:
+
+- Stats cards:
+  - Total posts.
+  - Published posts.
+  - Drafts.
+  - Latest deployment.
+- Recent deployments table.
+- Quick actions:
+  - New post.
+  - Publish site.
+  - Edit theme.
+
+Posts:
+
+- List-first page.
+- Table with:
+  - Title.
+  - Slug.
+  - Status badge.
+  - Updated date.
+  - Deploy status.
+  - Actions.
+- Toolbar:
+  - Search.
+  - Status filter.
+  - New post button.
+- Clicking row opens editor detail.
+
+Post Editor:
+
+- Use a proper form layout:
+  - Main content column: title, excerpt, CKEditor body.
+  - Right metadata column: slug, cover image, SEO, publish card.
+- Sticky right publish panel on desktop.
+- Clear save state:
+  - Unsaved.
+  - Saving.
+  - Saved.
+  - Error.
+- Preview action stays visible.
+
+Theme:
+
+- Theme cards must look like real previews, not just boxes.
+- Cards:
+  - Theme screenshot-like CSS preview.
+  - Theme name.
+  - Short use case.
+  - Selected badge.
+  - Preview button.
+  - Apply button.
+
+Deployments:
+
+- Operational table:
+  - Type.
+  - Status badge.
+  - Commit.
+  - Live URL.
+  - Error.
+  - Updated.
+- Row details expandable or modal.
+
+Settings / Navigation / Footer:
+
+- Use compact forms.
+- Group fields into cards.
+- Avoid long uncontrolled vertical forms.
+- Show save buttons in consistent footer/action area.
+
+### Publish Modal Rebuild
+
+Replace current modal with a more polished dialog:
+
+- Use dashboard modal style.
+- Centered card with:
+  - Icon/animation area.
+  - Title.
+  - Step list.
+  - Status message.
+  - Actions.
+
+States:
+
+- Saving:
+  - Spinner.
+  - Muted blue/gray.
+- Committing:
+  - Spinner.
+  - Commit step highlighted.
+- Waiting for GitHub Pages:
+  - Spinner.
+  - Allow close.
+- Done:
+  - Green check.
+  - Open live URL.
+  - View commit.
+  - Close.
+- Failed:
+  - Red alert.
+  - Error details.
+  - Retry status check.
+  - Close.
+
+### Implementation Plan For UI Rebuild
+
+1. Replace admin shell markup in `src/render/admin.js` with Tabler-style layout.
+2. Replace `src/admin/styles.js` with:
+   - minimal project CSS
+   - Tabler overrides only where necessary
+3. Update `src/admin/app.js` selectors if markup changes.
+4. Rebuild dashboard view first.
+5. Rebuild posts list and editor second.
+6. Rebuild theme cards third.
+7. Rebuild publish modal last.
+8. Run `node --check` and `wrangler deploy --dry-run`.
+
+### Acceptance For Rebuild
+
+- Admin no longer looks like a quick prototype.
+- Layout resembles a real internal CMS/admin product.
+- Tables, cards, forms, badges, buttons, modals are visually consistent.
+- Editing content is faster, not slower.
+- Publish feedback is impossible to miss.
+- Mobile does not break, even if desktop is the primary target.

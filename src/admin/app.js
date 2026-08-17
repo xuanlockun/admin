@@ -39,6 +39,7 @@ function showView(view) {
   };
   const [title, subtitle] = titles[view] || titles.dashboard;
   $("viewTitle").textContent = title;
+  $("viewCrumb").textContent = title;
   $("viewSubtitle").textContent = subtitle;
 }
 
@@ -49,7 +50,17 @@ async function refreshAll() {
 
 async function loadPosts() {
   state.posts = (await api("/api/posts")).posts;
-  $("postsTable").innerHTML = state.posts.map((post) => '<tr class="row-click" data-id="' + post.id + '"><td><strong>' + esc(post.title) + '</strong></td><td>' + esc(post.slug) + '</td><td><span class="status">' + esc(post.status) + '</span></td><td>' + fmt(post.updated_at) + '</td><td>' + esc(post.deploy_status || "idle") + '</td></tr>').join("");
+  renderPostsTable();
+}
+
+function renderPostsTable() {
+  const query = ($("postSearch")?.value || "").toLowerCase();
+  const status = $("statusFilter")?.value || "";
+  const posts = state.posts.filter((post) => {
+    const haystack = (post.title + " " + post.slug).toLowerCase();
+    return (!query || haystack.includes(query)) && (!status || post.status === status);
+  });
+  $("postsTable").innerHTML = posts.map((post) => '<tr class="row-click" data-id="' + post.id + '"><td><strong>' + esc(post.title) + '</strong><div class="text-secondary small">' + esc(post.excerpt || "") + '</div></td><td><code>' + esc(post.slug) + '</code></td><td><span class="status">' + esc(post.status) + '</span></td><td>' + fmt(post.updated_at) + '</td><td><span class="status">' + esc(post.deploy_status || "idle") + '</span></td></tr>').join("");
   document.querySelectorAll("#postsTable tr").forEach((row) => row.onclick = () => openPost(row.dataset.id));
 }
 
@@ -256,7 +267,7 @@ function openPublishModal(title, text) {
 function setModalState(stateName, title, text) {
   const mark = $("modalMark");
   mark.className = "modal-mark " + (stateName === "loading" ? "loading" : stateName === "success" ? "success" : stateName === "error" ? "error" : "");
-  mark.textContent = stateName === "success" ? "✓" : stateName === "error" ? "!" : "⏳";
+  mark.textContent = "";
   $("modalTitle").textContent = title;
   $("modalText").textContent = text;
 }
@@ -308,7 +319,7 @@ function renderLinks(containerId, items) {
 }
 
 function linkRow(item, index) {
-  return '<div class="link-row"><input placeholder="Label" data-field="label" value="' + attr(item.label || "") + '"><input placeholder="URL" data-field="url" value="' + attr(item.url || "") + '"><input type="number" data-field="sort_order" value="' + attr(item.sort_order ?? index) + '"><select data-field="target"><option value="_self"' + (item.target !== "_blank" ? " selected" : "") + '>Same tab</option><option value="_blank"' + (item.target === "_blank" ? " selected" : "") + '>New tab</option></select><button class="secondary" type="button" data-remove>×</button></div>';
+  return '<div class="link-row"><input class="form-control" placeholder="Label" data-field="label" value="' + attr(item.label || "") + '"><input class="form-control" placeholder="URL" data-field="url" value="' + attr(item.url || "") + '"><input class="form-control" type="number" data-field="sort_order" value="' + attr(item.sort_order ?? index) + '"><select class="form-select" data-field="target"><option value="_self"' + (item.target !== "_blank" ? " selected" : "") + '>Same tab</option><option value="_blank"' + (item.target === "_blank" ? " selected" : "") + '>New tab</option></select><button class="btn btn-outline-secondary" type="button" data-remove>X</button></div>';
 }
 
 async function saveLinkRows(path, containerId) {
@@ -320,11 +331,17 @@ async function saveLinkRows(path, containerId) {
 
 async function loadDeployments() {
   state.deployments = (await api("/api/deployments")).deployments;
-  $("deploymentsTable").innerHTML = state.deployments.map((item) => '<tr><td>' + esc(item.type) + (item.post_title ? '<br><span class="muted">' + esc(item.post_title) + '</span>' : '') + '</td><td><span class="status">' + esc(item.status) + '</span></td><td>' + commitLink(item.commit_url, item.commit_sha) + '</td><td>' + (item.live_url ? link(item.live_url, "Open") : "") + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("");
+  const rows = state.deployments.map((item) => '<tr><td>' + esc(item.type) + (item.post_title ? '<br><span class="text-secondary small">' + esc(item.post_title) + '</span>' : '') + '</td><td><span class="status">' + esc(item.status) + '</span></td><td>' + commitLink(item.commit_url, item.commit_sha) + '</td><td>' + (item.live_url ? link(item.live_url, "Open") : "") + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("");
+  $("deploymentsTable").innerHTML = rows;
+  if ($("dashboardDeployments")) $("dashboardDeployments").innerHTML = state.deployments.slice(0, 5).map((item) => '<tr><td>' + esc(item.type) + '</td><td><span class="status">' + esc(item.status) + '</span></td><td>' + commitLink(item.commit_url, item.commit_sha) + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("");
 }
 
 function renderDashboard() {
-  $("dashPosts").textContent = state.posts.length + " total posts";
+  const published = state.posts.filter((post) => post.status === "published").length;
+  const drafts = state.posts.filter((post) => post.status === "draft").length;
+  $("dashPosts").textContent = String(state.posts.length);
+  $("dashPublished").textContent = String(published);
+  $("dashDrafts").textContent = String(drafts);
   const latest = state.deployments[0];
   $("dashDeploy").textContent = latest ? latest.type + " / " + latest.status + " / " + shortSha(latest.commit_sha) : "No deployments yet";
 }
@@ -355,8 +372,12 @@ function esc(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => (
 function attr(value) { return esc(value).replace(/"/g, "&quot;"); }
 
 document.querySelectorAll(".nav button").forEach((button) => button.onclick = () => showView(button.dataset.view));
+document.querySelectorAll("[data-jump]").forEach((button) => button.onclick = () => showView(button.dataset.jump));
 $("refreshAll").onclick = refreshAll;
 $("newPost").onclick = newPost;
+$("dashNewPost").onclick = newPost;
+$("postSearch").oninput = renderPostsTable;
+$("statusFilter").onchange = renderPostsTable;
 $("postForm").onsubmit = async (event) => { event.preventDefault(); try { await savePost(); } catch (error) { $("postMessage").textContent = error.message; } };
 $("publishPost").onclick = publishPost;
 $("deletePost").onclick = deletePost;
@@ -374,6 +395,7 @@ $("addNavItem").onclick = () => $("navItems").insertAdjacentHTML("beforeend", li
 $("saveNavigation").onclick = saveNavigation;
 $("addFooterItem").onclick = () => $("footerItems").insertAdjacentHTML("beforeend", linkRow({}, document.querySelectorAll("#footerItems .link-row").length));
 $("saveFooter").onclick = saveFooter;
+$("refreshDeployments").onclick = loadDeployments;
 $("modalClose").onclick = () => $("publishModal").classList.add("hidden");
 $("previewClose").onclick = () => $("previewModal").classList.add("hidden");
 
