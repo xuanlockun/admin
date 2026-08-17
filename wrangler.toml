@@ -1,8 +1,13 @@
 name = "admin"
 main = "src/index.js"
 compatibility_date = "2026-08-17"
+workers_dev = true
+keep_vars = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cms_posts"
 
 # Configure these in the Cloudflare Worker dashboard after importing the repo:
-# - D1 binding: DB
 # - Variables: GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, SITE_TITLE
 # - Secrets: ADMIN_PASSWORD, GITHUB_TOKEN
