@@ -23,6 +23,8 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
    npx wrangler d1 migrations apply cms_posts --remote
    ```
 
+   Run this again after pulling CMS changes because new admin/site features add migrations.
+
 5. Configure repository target in the Worker dashboard variables:
 
    - `GITHUB_OWNER`
@@ -52,3 +54,11 @@ Cloudflare Worker admin for editing posts. Drafts are stored in D1. Publishing c
   - `posts/<slug>/index.html`
   - `posts.json`
   - `index.html`
+  - `style.css`
+
+## Current Admin Features
+
+- Dashboard sidebar with Posts, Landing, Navigation, Footer, Deployments, and Settings.
+- CKEditor 5 rich text editor loaded from the CKEditor CDN.
+- D1-backed site settings, header navigation, footer links, deployments, post SEO, and cover image fields.
+- GitHub Pages build tracking through the GitHub Pages REST API.
