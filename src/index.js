@@ -5,9 +5,9 @@ export default {
     try {
       const url = new URL(request.url);
 
-      if (url.pathname === "/api/health" && request.method === "GET") return health(env);
+      if (url.pathname === "/api/health" && request.method === "GET") return await health(env);
       if (url.pathname === "/login") {
-        return request.method === "POST" ? login(request, env) : html(loginPage());
+        return request.method === "POST" ? await login(request, env) : html(loginPage());
       }
 
       if (url.pathname === "/logout") {
@@ -20,11 +20,11 @@ export default {
       }
 
       if (url.pathname === "/") return html(adminPage(env));
-      if (url.pathname === "/api/posts" && request.method === "GET") return listPosts(env);
-      if (url.pathname === "/api/posts" && request.method === "POST") return savePost(request, env);
-      if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return getPost(url, env);
-      if (url.pathname.startsWith("/api/posts/") && request.method === "DELETE") return deletePost(url, env);
-      if (url.pathname.startsWith("/api/publish/") && request.method === "POST") return publishPost(url, env);
+      if (url.pathname === "/api/posts" && request.method === "GET") return await listPosts(env);
+      if (url.pathname === "/api/posts" && request.method === "POST") return await savePost(request, env);
+      if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return await getPost(url, env);
+      if (url.pathname.startsWith("/api/posts/") && request.method === "DELETE") return await deletePost(url, env);
+      if (url.pathname.startsWith("/api/publish/") && request.method === "POST") return await publishPost(url, env);
 
       return new Response("Not found", { status: 404 });
     } catch (error) {
