@@ -1,0 +1,2 @@
+ADMIN_PASSWORD="change-me"
+GITHUB_TOKEN="github_pat_or_fine_grained_token"
