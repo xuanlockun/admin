@@ -1,4 +1,4 @@
-name = "admin"
+name = "admin-test"
 main = "src/index.js"
 compatibility_date = "2026-08-17"
 workers_dev = true
@@ -7,6 +7,21 @@ keep_vars = true
 [[d1_databases]]
 binding = "DB"
 database_name = "cms_posts"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
 
 # Configure these in the Cloudflare Worker dashboard after importing the repo:
 # - Variables: GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, SITE_TITLE
