@@ -46,6 +46,7 @@ export function renderAdminShell(env) {
         </div>
         <div class="cms-actions">
           <button class="btn btn-outline-secondary" id="refreshAll" type="button">Refresh</button>
+          <button class="btn btn-outline-secondary" id="themeToggle" type="button">Dark</button>
           <button class="btn btn-primary" id="publishSite" type="button">Publish site</button>
         </div>
       </header>
@@ -75,13 +76,12 @@ export function renderAdminShell(env) {
               <div class="card-head">
                 <div>
                   <h2>Recent deployments</h2>
-                  <p>Latest GitHub Pages activity.</p>
                 </div>
                 <button class="btn btn-outline-secondary btn-sm" type="button" data-jump="deployments">View all</button>
               </div>
               <div class="table-responsive">
                 <table class="table cms-table">
-                  <thead><tr><th>Type</th><th>Status</th><th>Commit</th><th>Updated</th></tr></thead>
+                  <thead><tr><th>Type</th><th>Status</th><th>Updated</th></tr></thead>
                   <tbody id="dashboardDeployments"></tbody>
                 </table>
               </div>
@@ -90,7 +90,6 @@ export function renderAdminShell(env) {
               <div class="card-head">
                 <div>
                   <h2>Quick actions</h2>
-                  <p>Common CMS workflows.</p>
                 </div>
               </div>
               <div class="quick-actions">
@@ -107,7 +106,6 @@ export function renderAdminShell(env) {
             <div class="card-head">
               <div>
                 <h2>Posts</h2>
-                <p>Draft and published articles.</p>
               </div>
               <button class="btn btn-primary" id="newPost" type="button">New post</button>
             </div>
@@ -134,7 +132,6 @@ export function renderAdminShell(env) {
               <div class="card-head">
                 <div>
                   <h2 id="editorHeading">New post</h2>
-                  <p>Write and edit article content with CKEditor.</p>
                 </div>
                 <button class="btn btn-outline-secondary btn-sm" type="button" data-jump="posts">Back to posts</button>
               </div>
@@ -205,7 +202,6 @@ export function renderAdminShell(env) {
             <div class="card-head">
               <div>
                 <h2>Client themes</h2>
-                <p>Choose a complete visual style for the GitHub Pages site.</p>
               </div>
               <button class="btn btn-primary" id="saveTheme" type="button">Save theme</button>
             </div>
@@ -234,7 +230,7 @@ export function renderAdminShell(env) {
         <section class="view" id="navigationView">
           <div class="cms-card">
             <div class="card-head">
-              <div><h2>Header navigation</h2><p>Links shown in the generated site header.</p></div>
+              <div><h2>Header navigation</h2></div>
               <button class="btn btn-primary" id="addNavItem" type="button">Add link</button>
             </div>
             <div class="link-list" id="navItems"></div>
@@ -252,7 +248,7 @@ export function renderAdminShell(env) {
             <h2>Footer</h2>
             <label class="form-label">Footer text <textarea class="form-control" id="footer_text"></textarea></label>
             <div class="card-head">
-              <div><h2>Footer links</h2><p>Secondary links for every generated page.</p></div>
+              <div><h2>Footer links</h2></div>
               <button class="btn btn-primary" id="addFooterItem" type="button">Add link</button>
             </div>
             <div class="link-list" id="footerItems"></div>
@@ -264,14 +260,19 @@ export function renderAdminShell(env) {
         <section class="view" id="deploymentsView">
           <div class="cms-card">
             <div class="card-head">
-              <div><h2>Deployments</h2><p>GitHub commits and Pages build history.</p></div>
+              <div><h2>Deployments</h2></div>
               <button class="btn btn-outline-secondary" type="button" id="refreshDeployments">Refresh</button>
             </div>
             <div class="table-responsive">
               <table class="table cms-table">
-                <thead><tr><th>Type</th><th>Status</th><th>Commit</th><th>Live</th><th>Updated</th></tr></thead>
+                <thead><tr><th>Type</th><th>Status</th><th>Updated</th></tr></thead>
                 <tbody id="deploymentsTable"></tbody>
               </table>
+            </div>
+            <div class="pager">
+              <button class="btn btn-outline-secondary btn-sm" type="button" id="deployPrev">Previous</button>
+              <span id="deployPageInfo">Page 1 / 1</span>
+              <button class="btn btn-outline-secondary btn-sm" type="button" id="deployNext">Next</button>
             </div>
           </div>
         </section>
@@ -321,7 +322,7 @@ export function renderAdminShell(env) {
   <div class="modal-backdrop hidden" id="previewModal" role="dialog" aria-modal="true">
     <div class="preview-modal">
       <div class="card-head">
-        <div><h2>Post preview</h2><p>Preview uses editor HTML and current metadata.</p></div>
+        <div><h2>Post preview</h2></div>
         <button class="btn btn-outline-secondary" id="previewClose" type="button">Close</button>
       </div>
       <article class="preview-article" id="previewArticle"></article>

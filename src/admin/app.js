@@ -5,6 +5,8 @@ const state = {
   navigation: [],
   footer: [],
   deployments: [],
+  deploymentsPage: 1,
+  deploymentsTotalPages: 1,
   editor: null,
   activePoll: ""
 };
@@ -27,15 +29,15 @@ function showView(view) {
   document.querySelectorAll(".nav button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.id === view + "View"));
   const titles = {
-    dashboard: ["Dashboard", "Site activity and publish state."],
-    posts: ["Posts", "Manage draft and published articles."],
-    postEditor: ["Post editor", "Edit content, SEO and publishing."],
-    landing: ["Landing page", "Manage home page content and sections."],
-    theme: ["Theme", "Choose the visual system for the static site."],
-    navigation: ["Navigation", "Header links and call to action."],
-    footer: ["Footer", "Footer copy and links."],
-    deployments: ["Deployments", "Track GitHub commits and Pages builds."],
-    settings: ["Settings", "Site identity, SEO defaults and styling."]
+    dashboard: ["Dashboard", "Overview"],
+    posts: ["Posts", "Content"],
+    postEditor: ["Post editor", "Edit"],
+    landing: ["Landing page", "Home"],
+    theme: ["Theme", "Design"],
+    navigation: ["Navigation", "Header"],
+    footer: ["Footer", "Links"],
+    deployments: ["Deployments", "Build log"],
+    settings: ["Settings", "Site"]
   };
   const [title, subtitle] = titles[view] || titles.dashboard;
   $("viewTitle").textContent = title;
@@ -60,7 +62,7 @@ function renderPostsTable() {
     const haystack = (post.title + " " + post.slug).toLowerCase();
     return (!query || haystack.includes(query)) && (!status || post.status === status);
   });
-  $("postsTable").innerHTML = posts.map((post) => '<tr class="row-click" data-id="' + post.id + '"><td><strong>' + esc(post.title) + '</strong><div class="text-secondary small">' + esc(post.excerpt || "") + '</div></td><td><code>' + esc(post.slug) + '</code></td><td><span class="status">' + esc(post.status) + '</span></td><td>' + fmt(post.updated_at) + '</td><td><span class="status">' + esc(post.deploy_status || "idle") + '</span></td></tr>').join("");
+  $("postsTable").innerHTML = posts.map((post) => '<tr class="row-click" data-id="' + post.id + '"><td><strong>' + esc(post.title) + '</strong><div class="text-secondary small">' + esc(post.excerpt || "") + '</div></td><td><code>' + esc(post.slug) + '</code></td><td><span class="status">' + esc(post.status) + '</span></td><td>' + fmt(post.updated_at) + '</td><td>' + statusPill(post.deploy_status || "pending") + '</td></tr>').join("");
   document.querySelectorAll("#postsTable tr").forEach((row) => row.onclick = () => openPost(row.dataset.id));
 }
 
@@ -127,7 +129,7 @@ async function publishPost() {
     modalStep("modalStepCommit", "Committed");
     modalLinks(result);
     modalStep("modalStepPages", "Waiting");
-    setModalState("loading", "Waiting for GitHub Pages", "Commit created. GitHub Pages is building the public site.");
+    setModalState("loading", "Waiting for GitHub Pages", "Publish is pending.");
     $("postMessage").textContent = "Committed " + shortSha(result.commit_sha) + ". Waiting for GitHub Pages.";
     deployStep("deployCommit", commitLink(result.commit_url, result.commit_sha));
     deployStep("deployLive", result.live_url ? link(result.live_url, result.live_url) : "Waiting");
@@ -162,9 +164,9 @@ function insertImage() {
 
 function renderPostDeploy(post) {
   deployStep("deployCommit", post.deploy_commit_sha ? commitLink(post.deploy_commit_url, post.deploy_commit_sha) : "Idle");
-  deployStep("deployPages", post.deploy_status || "Idle");
+  deployStep("deployPages", post.deploy_status ? statusPill(post.deploy_status) : "Idle");
   deployStep("deployLive", post.deploy_live_url ? link(post.deploy_live_url, post.deploy_live_url) : "Idle");
-  if (post.deploy_commit_sha && !["built", "failed"].includes(post.deploy_status)) pollPages(post.deploy_commit_sha, post.deploy_live_url);
+  if (post.deploy_commit_sha && !["success", "failed"].includes(post.deploy_status)) pollPages(post.deploy_commit_sha, post.deploy_live_url);
 }
 
 async function pollPages(commitSha, liveUrl) {
@@ -177,8 +179,8 @@ async function pollPages(commitSha, liveUrl) {
     const build = status.latest_build;
     deployStep("deployPages", build ? build.status + (build.matches_commit ? "" : " (other commit)") : "No build yet");
     modalStep("modalStepPages", build ? build.status : "No build yet");
-    if (build?.matches_commit && build.status === "built") {
-      deployStep("deployPages", "Built");
+    if (build?.matches_commit && status.deploy_status === "success") {
+      deployStep("deployPages", "Success");
       deployStep("deployLive", link(liveUrl || status.live_url || status.pages_url, liveUrl || status.live_url || status.pages_url || "Live"));
       modalStep("modalStepPages", "Built");
       setModalState("success", "Published", "GitHub Pages is live.");
@@ -186,7 +188,7 @@ async function pollPages(commitSha, liveUrl) {
       await loadDeployments();
       return;
     }
-    if (build?.matches_commit && build.status === "errored") {
+    if (build?.matches_commit && status.deploy_status === "failed") {
       deployStep("deployPages", "Failed");
       deployStep("deployLive", esc(build.error?.message || "Unknown error"));
       modalStep("modalStepPages", "Failed");
@@ -244,7 +246,7 @@ async function publishSite() {
     modalStep("modalStepCommit", "Committed");
     modalStep("modalStepPages", "Waiting");
     modalLinks(result);
-    setModalState("loading", "Waiting for GitHub Pages", "Site commit created. GitHub Pages is building.");
+    setModalState("loading", "Waiting for GitHub Pages", "Publish is pending.");
     if (result.commit_sha) pollPages(result.commit_sha, result.live_url || result.pages_url);
     $("landingMessage").textContent = "Published " + shortSha(result.commit_sha);
     await loadDeployments();
@@ -329,11 +331,17 @@ async function saveLinkRows(path, containerId) {
   return result.items;
 }
 
-async function loadDeployments() {
-  state.deployments = (await api("/api/deployments")).deployments;
-  const rows = state.deployments.map((item) => '<tr><td>' + esc(item.type) + (item.post_title ? '<br><span class="text-secondary small">' + esc(item.post_title) + '</span>' : '') + '</td><td><span class="status">' + esc(item.status) + '</span></td><td>' + commitLink(item.commit_url, item.commit_sha) + '</td><td>' + (item.live_url ? link(item.live_url, "Open") : "") + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("");
+async function loadDeployments(page = state.deploymentsPage) {
+  const data = await api("/api/deployments?page=" + page + "&per_page=12");
+  state.deployments = data.deployments;
+  state.deploymentsPage = data.page;
+  state.deploymentsTotalPages = data.total_pages;
+  const rows = state.deployments.length ? state.deployments.map((item) => '<tr><td><strong>' + deploymentType(item) + '</strong>' + (item.post_title ? '<br><span class="text-secondary small">' + esc(item.post_title) + '</span>' : '') + '</td><td>' + statusPill(item.status) + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("") : '<tr><td colspan="3" class="text-secondary">No deployments yet.</td></tr>';
   $("deploymentsTable").innerHTML = rows;
-  if ($("dashboardDeployments")) $("dashboardDeployments").innerHTML = state.deployments.slice(0, 5).map((item) => '<tr><td>' + esc(item.type) + '</td><td><span class="status">' + esc(item.status) + '</span></td><td>' + commitLink(item.commit_url, item.commit_sha) + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("");
+  if ($("dashboardDeployments")) $("dashboardDeployments").innerHTML = state.deployments.length ? state.deployments.slice(0, 5).map((item) => '<tr><td>' + deploymentType(item) + '</td><td>' + statusPill(item.status) + '</td><td>' + fmt(item.updated_at) + '</td></tr>').join("") : '<tr><td colspan="3" class="text-secondary">No deployments yet.</td></tr>';
+  if ($("deployPageInfo")) $("deployPageInfo").textContent = "Page " + state.deploymentsPage + " / " + state.deploymentsTotalPages;
+  if ($("deployPrev")) $("deployPrev").disabled = state.deploymentsPage <= 1;
+  if ($("deployNext")) $("deployNext").disabled = state.deploymentsPage >= state.deploymentsTotalPages;
 }
 
 function renderDashboard() {
@@ -343,7 +351,25 @@ function renderDashboard() {
   $("dashPublished").textContent = String(published);
   $("dashDrafts").textContent = String(drafts);
   const latest = state.deployments[0];
-  $("dashDeploy").textContent = latest ? latest.type + " / " + latest.status + " / " + shortSha(latest.commit_sha) : "No deployments yet";
+  $("dashDeploy").textContent = latest ? deploymentType(latest) + " / " + latest.status : "No deployments yet";
+}
+
+function deploymentType(item) {
+  if (item.type === "post") return "Post publish";
+  if (item.type === "site") return "Site publish";
+  return esc(item.type || "Publish");
+}
+
+function statusPill(status) {
+  const value = ["pending", "success", "failed"].includes(status) ? status : "pending";
+  return '<span class="status status-' + value + '">' + value + '</span>';
+}
+
+function setColorMode(mode) {
+  const next = mode === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("cms:theme", next);
+  if ($("themeToggle")) $("themeToggle").textContent = next === "dark" ? "Light" : "Dark";
 }
 
 async function initEditor() {
@@ -395,10 +421,14 @@ $("addNavItem").onclick = () => $("navItems").insertAdjacentHTML("beforeend", li
 $("saveNavigation").onclick = saveNavigation;
 $("addFooterItem").onclick = () => $("footerItems").insertAdjacentHTML("beforeend", linkRow({}, document.querySelectorAll("#footerItems .link-row").length));
 $("saveFooter").onclick = saveFooter;
-$("refreshDeployments").onclick = loadDeployments;
+$("refreshDeployments").onclick = () => loadDeployments();
+$("deployPrev").onclick = () => loadDeployments(state.deploymentsPage - 1);
+$("deployNext").onclick = () => loadDeployments(state.deploymentsPage + 1);
+$("themeToggle").onclick = () => setColorMode(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 $("modalClose").onclick = () => $("publishModal").classList.add("hidden");
 $("previewClose").onclick = () => $("previewModal").classList.add("hidden");
 
+setColorMode(localStorage.getItem("cms:theme") || "light");
 initEditor().catch((error) => { $("postMessage").textContent = "Editor failed: " + error.message; });
 refreshAll().then(() => {
   showView(localStorage.getItem("cms:view") || "dashboard");

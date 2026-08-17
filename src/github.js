@@ -59,25 +59,37 @@ export async function getLatestPagesBuild(env) {
   }
 }
 
+export async function getPagesBuilds(env, limit = 20) {
+  try {
+    const perPage = Math.max(1, Math.min(100, Number(limit) || 20));
+    const result = await githubJson(env, `/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/pages/builds?per_page=${perPage}`);
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 export async function getPagesBuildStatus(env, commitSha) {
   assertGithubEnv(env);
-  const [pages, latestBuild] = await Promise.all([getPages(env), getLatestPagesBuild(env)]);
-  const buildCommitSha = latestBuild ? pagesBuildCommitSha(latestBuild) : null;
-  const status = latestBuild?.status || "unknown";
+  const [pages, builds, latestBuild] = await Promise.all([getPages(env), getPagesBuilds(env), getLatestPagesBuild(env)]);
+  const matchedBuild = builds.find((build) => pagesBuildCommitSha(build) === commitSha);
+  const visibleBuild = matchedBuild || latestBuild;
+  const buildCommitSha = visibleBuild ? pagesBuildCommitSha(visibleBuild) : null;
+  const status = visibleBuild?.status || "unknown";
   const matchesCommit = buildCommitSha === commitSha;
   return {
     pages_url: pages?.html_url || null,
-    latest_build: latestBuild ? {
+    latest_build: visibleBuild ? {
       status,
-      error: latestBuild.error || null,
+      error: visibleBuild.error || null,
       commit_sha: buildCommitSha,
       commit_url: buildCommitSha ? `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${buildCommitSha}` : null,
       matches_commit: matchesCommit,
-      updated_at: latestBuild.updated_at,
-      url: latestBuild.url
+      updated_at: visibleBuild.updated_at,
+      url: visibleBuild.url
     } : null,
-    deploy_status: matchesCommit ? pagesDeployStatus(status) : "waiting",
-    deploy_error: latestBuild?.error ? JSON.stringify(latestBuild.error) : null
+    deploy_status: matchesCommit ? pagesDeployStatus(status) : "pending",
+    deploy_error: visibleBuild?.error ? JSON.stringify(visibleBuild.error) : null
   };
 }
 
@@ -109,9 +121,7 @@ function pagesBuildCommitSha(build) {
 }
 
 function pagesDeployStatus(status) {
-  if (status === "built") return "built";
+  if (status === "built") return "success";
   if (status === "errored") return "failed";
-  if (status === "building") return "building";
-  if (status === "queued") return "queued";
-  return status || "unknown";
+  return "pending";
 }

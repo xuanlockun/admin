@@ -39,7 +39,12 @@ export async function handleRequest(request, env) {
   if (url.pathname === "/api/footer-links" && request.method === "GET") return json({ items: await loadFooterLinks(env) });
   if (url.pathname === "/api/footer-links" && request.method === "POST") return json({ items: await saveFooterLinks(env, (await request.json()).items || []) });
   if (url.pathname === "/api/publish-site" && request.method === "POST") return json(await publishSite(env));
-  if (url.pathname === "/api/deployments" && request.method === "GET") return json({ deployments: await listDeployments(env) });
+  if (url.pathname === "/api/deployments" && request.method === "GET") {
+    return json(await listDeployments(env, {
+      page: url.searchParams.get("page"),
+      perPage: url.searchParams.get("per_page")
+    }));
+  }
   if (url.pathname.startsWith("/api/pages-build/") && request.method === "GET") return json(await pagesBuildStatus(env, url.pathname.split("/").pop()));
 
   return new Response("Not found", { status: 404 });

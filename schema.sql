@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS deployments (
   commit_sha TEXT NOT NULL,
   commit_url TEXT NOT NULL,
   live_url TEXT,
-  status TEXT NOT NULL DEFAULT 'committed',
+  status TEXT NOT NULL DEFAULT 'pending',
   error TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

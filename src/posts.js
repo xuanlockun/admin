@@ -1,17 +1,18 @@
 import { all, first, run, slugify } from "./db.js";
 import { requiredString } from "./http.js";
 import { commitFiles, getPagesBuildStatus, getPagesUrl } from "./github.js";
-import { createDeployment, findPostByDeployCommit, listDeployments, loadSite, updateDeploymentByCommit } from "./site.js";
+import { createDeployment, findPostByDeployCommit, listDeploymentsPage, listPendingDeployments, loadSite, normalizeDeploymentStatus, updateDeploymentByCommit } from "./site.js";
 import { renderLandingHtml, renderPostHtml, renderStyleCss } from "./render/client.js";
 
 export async function listPosts(env) {
-  return all(env, "SELECT id, title, slug, excerpt, status, updated_at, published_at, deploy_commit_sha, deploy_status, deploy_updated_at FROM posts ORDER BY updated_at DESC");
+  const posts = await all(env, "SELECT id, title, slug, excerpt, status, updated_at, published_at, deploy_commit_sha, deploy_status, deploy_updated_at FROM posts ORDER BY updated_at DESC");
+  return posts.map((post) => ({ ...post, deploy_status: post.deploy_status ? normalizeDeploymentStatus(post.deploy_status) : null }));
 }
 
 export async function getPost(env, id) {
   const post = await first(env, "SELECT * FROM posts WHERE id = ?", id);
   if (!post) throw new Error("Post not found");
-  return post;
+  return { ...post, deploy_status: post.deploy_status ? normalizeDeploymentStatus(post.deploy_status) : null };
 }
 
 export async function savePost(env, input) {
@@ -89,13 +90,13 @@ export async function publishPost(env, id) {
     commit.html_url,
     pagesUrl,
     liveUrl,
-    "committed",
+    "pending",
     new Date().toISOString(),
     id
   );
-  await createDeployment(env, { type: "post", post_id: id, commit_sha: commit.sha, commit_url: commit.html_url, live_url: liveUrl, status: "committed" });
+  await createDeployment(env, { type: "post", post_id: id, commit_sha: commit.sha, commit_url: commit.html_url, live_url: liveUrl, status: "pending" });
 
-  return { ok: true, post_id: id, slug: post.slug, commit_sha: commit.sha, commit_url: commit.html_url, pages_url: pagesUrl, live_url: liveUrl, deploy_status: "committed" };
+  return { ok: true, post_id: id, slug: post.slug, commit_sha: commit.sha, commit_url: commit.html_url, pages_url: pagesUrl, live_url: liveUrl, deploy_status: "pending" };
 }
 
 export async function publishSite(env) {
@@ -106,8 +107,8 @@ export async function publishSite(env) {
     { path: "posts.json", content: JSON.stringify(posts, null, 2) + "\n" }
   ], "Publish site");
   const pagesUrl = await getPagesUrl(env);
-  await createDeployment(env, { type: "site", commit_sha: commit.sha, commit_url: commit.html_url, live_url: pagesUrl, status: "committed" });
-  return { ok: true, commit_sha: commit.sha, commit_url: commit.html_url, pages_url: pagesUrl, live_url: pagesUrl, deploy_status: "committed" };
+  await createDeployment(env, { type: "site", commit_sha: commit.sha, commit_url: commit.html_url, live_url: pagesUrl, status: "pending" });
+  return { ok: true, commit_sha: commit.sha, commit_url: commit.html_url, pages_url: pagesUrl, live_url: pagesUrl, deploy_status: "pending" };
 }
 
 export async function pagesBuildStatus(env, commitSha) {
@@ -128,4 +129,8 @@ export async function pagesBuildStatus(env, commitSha) {
   return { ok: true, commit_sha: commitSha, live_url: post?.deploy_live_url || status.pages_url, ...status };
 }
 
-export { listDeployments };
+export async function listDeployments(env, options = {}) {
+  const pending = await listPendingDeployments(env);
+  await Promise.all(pending.map((deployment) => pagesBuildStatus(env, deployment.commit_sha).catch(() => null)));
+  return listDeploymentsPage(env, options.page, options.perPage);
+}

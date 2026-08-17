@@ -120,7 +120,7 @@ export async function createDeployment(env, input) {
     input.commit_sha,
     input.commit_url,
     input.live_url || null,
-    input.status || "committed",
+    normalizeDeploymentStatus(input.status),
     input.error || null,
     now,
     now
@@ -132,19 +132,52 @@ export async function updateDeploymentByCommit(env, commitSha, patch) {
   await run(
     env,
     "UPDATE deployments SET status = ?, error = ?, updated_at = ? WHERE commit_sha = ?",
-    patch.status,
+    normalizeDeploymentStatus(patch.status),
     patch.error || null,
     new Date().toISOString(),
     commitSha
   );
 }
 
-export async function listDeployments(env) {
-  return all(env, "SELECT deployments.*, posts.title AS post_title, posts.slug AS post_slug FROM deployments LEFT JOIN posts ON posts.id = deployments.post_id ORDER BY deployments.created_at DESC LIMIT 50");
+export async function listDeploymentsPage(env, page = 1, perPage = 20) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePerPage = Math.max(5, Math.min(50, Number(perPage) || 20));
+  const offset = (safePage - 1) * safePerPage;
+  const [rows, totalRow] = await Promise.all([
+    all(
+      env,
+      "SELECT deployments.*, posts.title AS post_title, posts.slug AS post_slug FROM deployments LEFT JOIN posts ON posts.id = deployments.post_id ORDER BY deployments.created_at DESC LIMIT ? OFFSET ?",
+      safePerPage,
+      offset
+    ),
+    first(env, "SELECT COUNT(*) AS count FROM deployments")
+  ]);
+  const total = Number(totalRow?.count || 0);
+  return {
+    deployments: rows.map((row) => ({ ...row, status: normalizeDeploymentStatus(row.status) })),
+    page: safePage,
+    per_page: safePerPage,
+    total,
+    total_pages: Math.max(1, Math.ceil(total / safePerPage))
+  };
+}
+
+export async function listPendingDeployments(env, limit = 8) {
+  return all(
+    env,
+    "SELECT commit_sha FROM deployments WHERE status NOT IN ('success', 'failed') ORDER BY created_at DESC LIMIT ?",
+    Math.max(1, Math.min(20, Number(limit) || 8))
+  );
 }
 
 export async function findPostByDeployCommit(env, commitSha) {
   return first(env, "SELECT id, deploy_live_url FROM posts WHERE deploy_commit_sha = ?", commitSha);
+}
+
+export function normalizeDeploymentStatus(status) {
+  if (status === "success" || status === "built") return "success";
+  if (status === "failed" || status === "errored" || status === "error") return "failed";
+  return "pending";
 }
 
 function normalizeSettings(input, env) {
