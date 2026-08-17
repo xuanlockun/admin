@@ -35,6 +35,7 @@ export default {
       }
 
       if (url.pathname === "/") return html(adminPage(env));
+      if (url.pathname === "/api/health" && request.method === "GET") return health(env);
       if (url.pathname === "/api/posts" && request.method === "GET") return listPosts(env);
       if (url.pathname === "/api/posts" && request.method === "POST") return savePost(request, env);
       if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return getPost(url, env);
@@ -44,8 +45,9 @@ export default {
       return new Response("Not found", { status: 404 });
     } catch (error) {
       const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return json({ error: error.message }, 500);
-      return html(loginPage(error.message), 500);
+      const message = error?.message || String(error);
+      if (url.pathname.startsWith("/api/")) return json({ error: message }, 500);
+      return html(loginPage(message), 500);
     }
   }
 };
@@ -112,7 +114,7 @@ async function savePost(request, env) {
     "INSERT INTO posts (title, slug, excerpt, body_html, updated_at) VALUES (?, ?, ?, ?, ?)"
   ).bind(title, slug, excerpt, bodyHtml, now).run();
 
-  return json({ id: result.meta.last_row_id, slug }, 201);
+  return json({ id: Number(result.meta.last_row_id), slug }, 201);
 }
 
 async function deletePost(url, env) {
@@ -171,7 +173,7 @@ async function commitFiles(env, files, message) {
       body: JSON.stringify({
         message,
         branch: env.GITHUB_BRANCH,
-        content: btoa(unescape(encodeURIComponent(file.content))),
+        content: base64Encode(file.content),
         sha: currentJson?.sha
       })
     });
@@ -202,8 +204,30 @@ function assertGithubEnv(env) {
 async function ensureDatabase(env) {
   if (!env.DB) throw new Error("Missing D1 binding DB. Add a D1 database binding named DB in the Worker settings.");
   if (schemaReady) return;
-  await env.DB.exec(SCHEMA_SQL);
+  const statements = SCHEMA_SQL.split(";").map((statement) => statement.trim()).filter(Boolean);
+  for (const statement of statements) {
+    await env.DB.prepare(statement).run();
+  }
   schemaReady = true;
+}
+
+async function health(env) {
+  const checks = {
+    db_binding: Boolean(env.DB),
+    admin_password: Boolean(env.ADMIN_PASSWORD),
+    github_token: Boolean(env.GITHUB_TOKEN),
+    github_owner: Boolean(env.GITHUB_OWNER),
+    github_repo: Boolean(env.GITHUB_REPO),
+    github_branch: Boolean(env.GITHUB_BRANCH)
+  };
+
+  if (env.DB) {
+    await ensureDatabase(env);
+    const result = await env.DB.prepare("SELECT COUNT(*) AS count FROM posts").first();
+    checks.posts_table = Number(result?.count || 0);
+  }
+
+  return json({ ok: true, checks });
 }
 
 function adminPage(env) {
@@ -273,7 +297,10 @@ function adminPage(env) {
         headers: { "Content-Type": "application/json" },
         ...options
       });
-      const data = await response.json();
+      const contentType = response.headers.get("Content-Type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : { error: await response.text() };
       if (!response.ok) throw new Error(data.error || "Request failed");
       return data;
     }
@@ -466,6 +493,13 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function base64Encode(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function html(body, status = 200, headers = {}) {
   return new Response(body, {
     status,
@@ -474,10 +508,14 @@ function html(body, status = 200, headers = {}) {
 }
 
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify(data, jsonReplacer), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" }
   });
+}
+
+function jsonReplacer(key, value) {
+  return typeof value === "bigint" ? Number(value) : value;
 }
 
 function redirect(location, headers = {}) {
