@@ -22,6 +22,9 @@ export default {
       if (url.pathname === "/") return html(adminPage(env));
       if (url.pathname === "/api/posts" && request.method === "GET") return await listPosts(env);
       if (url.pathname === "/api/posts" && request.method === "POST") return await savePost(request, env);
+      if (url.pathname === "/api/settings" && request.method === "GET") return await getSettings(env);
+      if (url.pathname === "/api/settings" && request.method === "POST") return await saveSettings(request, env);
+      if (url.pathname === "/api/publish-landing" && request.method === "POST") return await publishLanding(env);
       if (url.pathname.startsWith("/api/posts/") && request.method === "GET") return await getPost(url, env);
       if (url.pathname.startsWith("/api/posts/") && request.method === "DELETE") return await deletePost(url, env);
       if (url.pathname.startsWith("/api/publish/") && request.method === "POST") return await publishPost(url, env);
@@ -109,6 +112,98 @@ async function deletePost(url, env) {
   return json({ ok: true });
 }
 
+async function getSettings(env) {
+  assertDatabase(env);
+  const settings = await loadSettings(env);
+  return json({ settings });
+}
+
+async function saveSettings(request, env) {
+  assertDatabase(env);
+  const input = await request.json();
+  const settings = normalizeSettings(input);
+  await saveSettingsValues(env, settings);
+  return json({ ok: true, settings });
+}
+
+async function publishLanding(env) {
+  assertDatabase(env);
+  assertGithubEnv(env);
+  const settings = await loadSettings(env);
+  const posts = await listPublishedPosts(env);
+  const commit = await commitFiles(env, [
+    {
+      path: "index.html",
+      content: renderLandingHtml(env, posts, settings)
+    },
+    {
+      path: "style.css",
+      content: renderStyleCss(settings)
+    },
+    {
+      path: "posts.json",
+      content: JSON.stringify(posts, null, 2) + "\n"
+    }
+  ], "Update landing page");
+
+  return json({
+    ok: true,
+    commit_sha: commit.sha,
+    commit_url: commit.html_url,
+    pages_url: await getPagesUrl(env)
+  });
+}
+
+async function listPublishedPosts(env) {
+  const published = await env.DB.prepare(
+    "SELECT title, slug, excerpt, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"
+  ).all();
+  return published.results || [];
+}
+
+async function loadSettings(env) {
+  const defaults = defaultSettings(env);
+  try {
+    const result = await env.DB.prepare("SELECT key, value FROM site_settings").all();
+    const saved = Object.fromEntries((result.results || []).map((row) => [row.key, row.value]));
+    return { ...defaults, ...saved };
+  } catch (error) {
+    return defaults;
+  }
+}
+
+function normalizeSettings(input) {
+  const defaults = defaultSettings({});
+  return {
+    site_title: String(input.site_title || defaults.site_title).trim() || defaults.site_title,
+    hero_title: String(input.hero_title || defaults.hero_title).trim() || defaults.hero_title,
+    hero_subtitle: String(input.hero_subtitle || ""),
+    intro_html: String(input.intro_html || ""),
+    accent_color: /^#[0-9a-fA-F]{6}$/.test(String(input.accent_color || "")) ? input.accent_color : defaults.accent_color,
+    custom_css: String(input.custom_css || "")
+  };
+}
+
+async function saveSettingsValues(env, settings) {
+  const now = new Date().toISOString();
+  for (const [key, value] of Object.entries(settings)) {
+    await env.DB.prepare(
+      "INSERT INTO site_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(key, value, now).run();
+  }
+}
+
+function defaultSettings(env) {
+  return {
+    site_title: env.SITE_TITLE || "Static CMS",
+    hero_title: env.SITE_TITLE || "Static CMS",
+    hero_subtitle: "Published notes and articles.",
+    intro_html: "<p>Welcome to the site.</p>",
+    accent_color: "#245c6f",
+    custom_css: ""
+  };
+}
+
 async function publishPost(url, env) {
   assertDatabase(env);
   const id = Number(url.pathname.split("/").pop());
@@ -120,10 +215,8 @@ async function publishPost(url, env) {
     "UPDATE posts SET status = 'published', updated_at = ?, published_at = COALESCE(published_at, ?) WHERE id = ?"
   ).bind(now, now, id).run();
 
-  const published = await env.DB.prepare(
-    "SELECT title, slug, excerpt, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"
-  ).all();
-  const posts = published.results || [];
+  const posts = await listPublishedPosts(env);
+  const settings = await loadSettings(env);
 
   const commit = await commitFiles(env, [
     {
@@ -136,7 +229,11 @@ async function publishPost(url, env) {
     },
     {
       path: "index.html",
-      content: renderIndexHtml(env, posts)
+      content: renderLandingHtml(env, posts, settings)
+    },
+    {
+      path: "style.css",
+      content: renderStyleCss(settings)
     }
   ], `Publish ${post.slug}`);
 
@@ -373,7 +470,10 @@ function adminPage(env) {
     :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #172026; background: #f6f7f4; }
     body { margin: 0; }
     header { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; border-bottom: 1px solid #d9ddd5; background: #fff; }
-    main { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 70px); }
+    main { display: grid; grid-template-columns: 220px 320px 1fr; min-height: calc(100vh - 70px); }
+    .app-nav { border-right: 1px solid #d9ddd5; background: #f1f3ef; padding: 16px; }
+    .nav-button { width: 100%; display: block; text-align: left; margin-bottom: 8px; background: transparent; color: #172026; border-color: transparent; }
+    .nav-button.active { background: #172026; color: #fff; border-color: #172026; }
     aside { border-right: 1px solid #d9ddd5; background: #fff; padding: 16px; overflow: auto; }
     section { padding: 24px; }
     button, input, textarea { font: inherit; }
@@ -383,6 +483,13 @@ function adminPage(env) {
     label { display: grid; gap: 6px; margin-bottom: 14px; font-weight: 650; }
     input, textarea { border: 1px solid #b8c0b2; border-radius: 6px; padding: 10px; background: #fff; color: #172026; }
     textarea { min-height: 320px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .view { display: none; }
+    .view.active { display: block; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 10px; }
+    .toolbar button { padding: 7px 9px; background: #fff; color: #172026; border-color: #b8c0b2; }
+    .editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    .preview { min-height: 320px; border: 1px solid #b8c0b2; border-radius: 6px; padding: 14px; background: #fff; overflow: auto; }
+    .landing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .post { width: 100%; text-align: left; background: #fff; color: #172026; border: 1px solid #d9ddd5; margin-bottom: 8px; }
     .post strong, .post small { display: block; }
@@ -395,7 +502,7 @@ function adminPage(env) {
     .deploy-line:first-of-type { border-top: 0; padding-top: 0; }
     .deploy-line strong { color: #172026; text-align: right; }
     .deploy-line a { word-break: break-all; }
-    @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid #d9ddd5; } }
+    @media (max-width: 1000px) { main, .editor-grid, .landing-grid { grid-template-columns: 1fr; } aside, .app-nav { border-right: 0; border-bottom: 1px solid #d9ddd5; } }
   </style>
 </head>
 <body>
@@ -404,6 +511,10 @@ function adminPage(env) {
     <a href="/logout">Đăng xuất</a>
   </header>
   <main>
+    <nav class="app-nav">
+      <button class="nav-button active" type="button" data-view="postsView">Posts</button>
+      <button class="nav-button" type="button" data-view="landingView">Landing page</button>
+    </nav>
     <aside>
       <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
         <strong>Bài viết</strong>
@@ -411,13 +522,24 @@ function adminPage(env) {
       </div>
       <div id="posts"></div>
     </aside>
-    <section>
+    <section class="view active" id="postsView">
       <form id="editor">
         <input type="hidden" id="id">
         <label>Tiêu đề <input id="title" required></label>
         <label>Slug <input id="slug" placeholder="tu-dong-tao-tu-tieu-de"></label>
         <label>Mô tả ngắn <input id="excerpt"></label>
         <label>Nội dung HTML <textarea id="body_html" placeholder="<p>Nội dung...</p>"></textarea></label>
+        <div class="toolbar">
+          <button type="button" data-insert="<h2>Heading</h2>">H2</button>
+          <button type="button" data-insert="<p>Paragraph</p>">P</button>
+          <button type="button" data-wrap="<strong>|</strong>">Bold</button>
+          <button type="button" data-wrap="<em>|</em>">Italic</button>
+          <button type="button" data-insert="<ul><li>Item</li></ul>">List</button>
+          <button type="button" data-insert="<blockquote>Quote</blockquote>">Quote</button>
+          <button type="button" id="copyHtml">Copy</button>
+          <button type="button" id="pasteHtml">Paste</button>
+        </div>
+        <div class="preview" id="postPreview"></div>
         <div class="row">
           <button type="submit">Lưu draft</button>
           <button type="button" id="publish">Publish</button>
@@ -430,6 +552,23 @@ function adminPage(env) {
           <div class="deploy-line"><span>Commit</span><strong id="deployCommit">Idle</strong></div>
           <div class="deploy-line"><span>GitHub Pages</span><strong id="deployPages">Idle</strong></div>
           <div class="deploy-line"><span>Live URL</span><strong id="deployLive">Idle</strong></div>
+        </div>
+      </form>
+    </section>
+    <section class="view" id="landingView">
+      <form id="landingForm">
+        <div class="landing-grid">
+          <label>Site title <input id="site_title"></label>
+          <label>Accent color <input id="accent_color" type="color"></label>
+        </div>
+        <label>Hero title <input id="hero_title"></label>
+        <label>Hero subtitle <input id="hero_subtitle"></label>
+        <label>Intro HTML <textarea id="intro_html" placeholder="<p>Intro...</p>"></textarea></label>
+        <label>Custom CSS <textarea id="custom_css" placeholder=".hero { ... }"></textarea></label>
+        <div class="row">
+          <button type="submit">Save landing draft</button>
+          <button type="button" id="publishLanding">Publish landing</button>
+          <span id="landingMessage"></span>
         </div>
       </form>
     </section>
@@ -452,6 +591,98 @@ function adminPage(env) {
       return data;
     }
 
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.onclick = () => showView(button.dataset.view);
+    });
+
+    function showView(viewId) {
+      document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === viewId));
+      document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === viewId));
+      if (viewId === "landingView") loadSettings();
+    }
+
+    document.querySelectorAll("[data-insert]").forEach((button) => {
+      button.onclick = () => insertHtml(button.dataset.insert);
+    });
+
+    document.querySelectorAll("[data-wrap]").forEach((button) => {
+      button.onclick = () => wrapSelection(button.dataset.wrap);
+    });
+
+    $("copyHtml").onclick = async () => {
+      await navigator.clipboard.writeText($("body_html").value);
+      message("Copied HTML.");
+    };
+
+    $("pasteHtml").onclick = async () => {
+      $("body_html").value += await navigator.clipboard.readText();
+      updatePreview();
+      message("Pasted HTML.");
+    };
+
+    $("body_html").addEventListener("input", updatePreview);
+
+    function insertHtml(html) {
+      const field = $("body_html");
+      field.setRangeText(html, field.selectionStart, field.selectionEnd, "end");
+      field.focus();
+      updatePreview();
+    }
+
+    function wrapSelection(pattern) {
+      const field = $("body_html");
+      const selected = field.value.slice(field.selectionStart, field.selectionEnd) || "text";
+      insertHtml(pattern.replace("|", selected));
+    }
+
+    function updatePreview() {
+      $("postPreview").innerHTML = $("body_html").value || "<p>Preview</p>";
+    }
+
+    async function loadSettings() {
+      const { settings } = await api("/api/settings");
+      $("site_title").value = settings.site_title || "";
+      $("hero_title").value = settings.hero_title || "";
+      $("hero_subtitle").value = settings.hero_subtitle || "";
+      $("intro_html").value = settings.intro_html || "";
+      $("accent_color").value = settings.accent_color || "#245c6f";
+      $("custom_css").value = settings.custom_css || "";
+    }
+
+    async function saveLanding() {
+      const payload = {
+        site_title: $("site_title").value,
+        hero_title: $("hero_title").value,
+        hero_subtitle: $("hero_subtitle").value,
+        intro_html: $("intro_html").value,
+        accent_color: $("accent_color").value,
+        custom_css: $("custom_css").value
+      };
+      await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+      $("landingMessage").textContent = "Landing draft saved.";
+    }
+
+    $("landingForm").onsubmit = async (event) => {
+      event.preventDefault();
+      try { await saveLanding(); } catch (error) { $("landingMessage").textContent = error.message; }
+    };
+
+    $("publishLanding").onclick = async () => {
+      $("publishLanding").disabled = true;
+      try {
+        await saveLanding();
+        $("landingMessage").textContent = "Publishing landing...";
+        const result = await api("/api/publish-landing", { method: "POST" });
+        $("landingMessage").innerHTML = result.commit_url
+          ? 'Published landing: <a href="' + result.commit_url + '" target="_blank" rel="noopener">' + shortSha(result.commit_sha) + "</a>"
+          : "Published landing.";
+      } catch (error) {
+        $("landingMessage").textContent = error.message;
+      } finally {
+        $("publishLanding").disabled = false;
+      }
+    };
+
     async function loadPosts() {
       state.posts = (await api("/api/posts")).posts;
       $("posts").innerHTML = state.posts.map((post) => '<button class="post" data-id="' + post.id + '"><strong>' + escapeText(post.title) + '</strong><small>' + escapeText(post.slug) + ' · <span class="status">' + escapeText(post.status) + '</span></small></button>').join("");
@@ -467,6 +698,7 @@ function adminPage(env) {
       $("slug").value = post.slug;
       $("excerpt").value = post.excerpt || "";
       $("body_html").value = post.body_html || "";
+      updatePreview();
       renderDeployFromPost(post);
       message("Đã mở bài viết.");
     }
@@ -534,6 +766,7 @@ function adminPage(env) {
       $("slug").value = "";
       $("excerpt").value = "";
       $("body_html").value = "";
+      updatePreview();
       message("Tạo bài mới.");
     }
 
@@ -623,6 +856,8 @@ function adminPage(env) {
       return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
     }
     loadPosts();
+    loadSettings().catch((error) => { $("landingMessage").textContent = error.message; });
+    updatePreview();
   </script>
 </body>
 </html>`;
@@ -712,6 +947,133 @@ function requiredString(value, field) {
   const text = String(value || "").trim();
   if (!text) throw new Error(`Missing ${field}`);
   return text;
+}
+
+function renderLandingHtml(env, posts, settings = defaultSettings(env)) {
+  const siteTitle = escapeHtml(settings.site_title || env.SITE_TITLE || "Static CMS");
+  const heroTitle = escapeHtml(settings.hero_title || settings.site_title || "Static CMS");
+  const heroSubtitle = escapeHtml(settings.hero_subtitle || "");
+  const list = posts.map((post) => `<article class="post-card">
+  <h2><a href="posts/${escapeHtml(post.slug)}/">${escapeHtml(post.title)}</a></h2>
+  <p>${escapeHtml(post.excerpt || "")}</p>
+  <small>${escapeHtml(formatDate(post.published_at || post.updated_at))}</small>
+</article>`).join("\n");
+
+  return `<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${siteTitle}</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="home">
+    <header class="hero">
+      <p class="eyebrow">${siteTitle}</p>
+      <h1>${heroTitle}</h1>
+      <p>${heroSubtitle}</p>
+    </header>
+    <section class="intro">
+      ${settings.intro_html || ""}
+    </section>
+    <section class="post-list">
+      ${list || "<p>No published posts yet.</p>"}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function renderStyleCss(settings = defaultSettings({})) {
+  const accent = /^#[0-9a-fA-F]{6}$/.test(settings.accent_color || "") ? settings.accent_color : "#245c6f";
+  return `:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #172026;
+  background: #f6f7f4;
+  --accent: ${accent};
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+.home,
+.post-page {
+  width: min(940px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 48px 0;
+}
+
+.hero {
+  border-bottom: 1px solid #d9ddd5;
+  margin-bottom: 24px;
+  padding: 24px 0 28px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+h1 {
+  font-size: clamp(34px, 6vw, 64px);
+  line-height: 1;
+  margin: 0 0 12px;
+}
+
+.intro {
+  font-size: 18px;
+  line-height: 1.7;
+  margin-bottom: 26px;
+}
+
+.post-list {
+  display: grid;
+  gap: 14px;
+}
+
+.post-card {
+  border-bottom: 1px solid #d9ddd5;
+  padding: 8px 0 18px;
+}
+
+.post-card h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.post-card p {
+  color: #46514a;
+  margin: 0 0 8px;
+}
+
+.post-card small,
+.meta {
+  color: #69736b;
+}
+
+.post-page article {
+  margin-top: 28px;
+}
+
+.post-page article :where(p, li) {
+  font-size: 18px;
+  line-height: 1.75;
+}
+
+.post-page img {
+  max-width: 100%;
+  height: auto;
+}
+
+${settings.custom_css || ""}
+`;
 }
 
 function slugify(value) {
